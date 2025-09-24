@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"github.com/21strive/redifu"
 	"github.com/redis/go-redis/v9"
+	"log"
 	"redifu-example/definition"
 )
 
@@ -57,6 +58,22 @@ func (t *TicketRepository) Init(
 	sortedByReporter *redifu.Sorted[Ticket],
 	sortedByReporterSeeder *redifu.SortedSQLSeeder[Ticket],
 ) {
+	createTable := `
+		CREATE TABLE IF NOT EXISTS ticket ( 
+		    uuid varchar(36), 
+		    randid varchar(16), 
+		    created_at timestamp, 
+		    updated_at timestamp, 
+		    reporter_uuid varchar(36), 
+		    description text, 
+		    resolved bool 
+	  	);
+	`
+	_, errCreateTable := db.Exec(createTable)
+	if errCreateTable != nil {
+		log.Fatal(errCreateTable)
+	}
+
 	t.db = db
 	t.base = base
 	t.timeline = timeline
@@ -185,6 +202,23 @@ func rowsScanner(rows *sql.Rows) (Ticket, error) {
 	return *ticket, errScan
 }
 
+func (t *TicketRepository) SeedByRandId(randId string) error {
+	ticket, errFind := t.FindByRandId(randId)
+	if errFind != nil {
+		return errFind
+	}
+	if ticket == nil {
+		return t.base.SetBlank(randId)
+	}
+
+	errSet := t.base.Set(*ticket)
+	if errSet != nil {
+		return errSet
+	}
+
+	return nil
+}
+
 func (t *TicketRepository) SeedTimeline(subtraction int64, lastRandId string) error {
 	rowQuery := "SELECT * FROM ticket WHERE randid = $1"
 	firstPageQuery := "SELECT * FROM ticket ORDER BY created_at DESC"
@@ -219,6 +253,16 @@ func (t *TicketRepository) SeedTimelineByReporter(subtraction int64, lastRandId 
 		lastRandId,
 		[]string{reporterUUID},
 	)
+}
+
+func (t *TicketRepository) SeedSorted() error {
+	query := "SELECT * FROM ticket"
+	return t.sortedSeeder.SeedAll(query, rowsScanner, nil, nil)
+}
+
+func (t *TicketRepository) SeedSortedByReporter(reporterUUID string) error {
+	query := "SELECT * FROM ticket WHERE reporter_uuid = $1"
+	return t.sortedSeeder.SeedAll(query, rowsScanner, []interface{}{reporterUUID}, []string{reporterUUID})
 }
 
 func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketRepository {
@@ -305,4 +349,14 @@ func (t *TicketFetcher) FetchSortedByReporter(reporterUUID string) ([]Ticket, er
 
 func (t *TicketFetcher) IsSortedByReporterSeedingRequired(reporterUUID string) (bool, error) {
 	return t.sorted.RequiresSeeding([]string{reporterUUID})
+}
+
+func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
+	base := redifu.NewBase[Ticket](redisClient, "ticket:%s", definition.BaseTTL)
+	timeline := redifu.NewTimeline[Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	sorted := redifu.NewSorted[Ticket](redisClient, base, "ticket-sorted", definition.SortedSetTTL)
+
+	ticketFetcher := &TicketFetcher{}
+	ticketFetcher.Init(base, timeline, sorted)
+	return ticketFetcher
 }

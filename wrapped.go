@@ -166,7 +166,7 @@ func FetchTimeline(lastRandId []string, ticketFetcher *lib.TicketFetcher) ([]lib
 		}
 
 		if seedRequired {
-			return nil, validLastRandId, position, true, nil
+			return tickets, validLastRandId, position, true, nil
 		}
 	}
 
@@ -200,4 +200,56 @@ func FetchTimelineByReporter(lastRandId []string, reporterUUID string, ticketFet
 	}
 
 	return tickets, validLastRandId, position, false, nil
+}
+
+func FetchSorted(ticketFetcher *lib.TicketFetcher) ([]lib.Ticket, bool, *CommonError) {
+	tickets, errFetch := ticketFetcher.FetchSorted()
+	if errFetch != nil {
+		return nil, false, &CommonError{
+			Status: fiber.StatusInternalServerError,
+			Code:   "T500",
+			Error:  errFetch,
+		}
+	}
+	if len(tickets) == 0 {
+		isSeedRequired, errCheck := ticketFetcher.IsSortedSeedingRequired()
+		if errCheck != nil {
+			return nil, false, &CommonError{
+				Status: fiber.StatusInternalServerError,
+				Code:   "T500",
+				Error:  errCheck,
+			}
+		}
+		if isSeedRequired {
+			return nil, true, nil
+		}
+	}
+
+	return tickets, false, nil
+}
+
+func FetchSortedByReporter(reporterUUID string, ticketFetcher *lib.TicketFetcher) ([]lib.Ticket, bool, *CommonError) {
+	tickets, errFetch := ticketFetcher.FetchSortedByReporter(reporterUUID)
+	if errFetch != nil {
+		return nil, false, &CommonError{
+			Status: fiber.StatusInternalServerError,
+			Code:   "T500",
+			Error:  errFetch,
+		}
+	}
+	if len(tickets) == 0 {
+		isSeedRequired, errCheck := ticketFetcher.IsSortedByReporterSeedingRequired(reporterUUID)
+		if errCheck != nil {
+			return nil, false, &CommonError{
+				Status: fiber.StatusInternalServerError,
+				Code:   "T500",
+				Error:  errCheck,
+			}
+		}
+		if isSeedRequired {
+			return nil, true, nil
+		}
+	}
+
+	return tickets, false, nil
 }
