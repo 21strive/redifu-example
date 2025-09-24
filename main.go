@@ -14,6 +14,8 @@ import (
 	"redifu-example/request"
 	"strings"
 	"time"
+
+	_ "github.com/lib/pq"
 )
 
 var Logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -106,10 +108,7 @@ func ConstructErrorResponse(c *fiber.Ctx, componentName string, status int, erro
 }
 
 func main() {
-	db, errConnectDB := CreatePostgresConnection()
-	if errConnectDB != nil {
-		log.Fatal(errConnectDB)
-	}
+	db := CreatePostgresConnection()
 	redis := ConnectRedis(os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PASSWORD"), false)
 
 	ticketRepository := lib.NewTicketRepository(db, redis)
@@ -307,5 +306,5 @@ func main() {
 		return c.JSON(ticket)
 	})
 
-	app.Listen(":3000")
+	app.Listen(":4000")
 }
