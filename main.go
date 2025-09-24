@@ -18,17 +18,27 @@ import (
 
 var Logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-func CreatePostgresConnection() (*sql.DB, error) {
-	connStr := "dbname=paparazoo sslmode=disable"
+func CreatePostgresConnection() *sql.DB {
+	// Environment variables approach (recommended)
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	dbname := os.Getenv("DB_NAME")
+	sslmode := os.Getenv("DB_SSLMODE")
 
-	db, err := sql.Open("postgres", connStr)
+	// Build connection string
+	connectionString := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		user, password, host, port, dbname, sslmode)
+
+	db, err := sql.Open("postgres", connectionString)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database connection: %w", err)
+		log.Fatal(fmt.Errorf("failed to open database connection: %w", err))
 	}
 
 	if err := db.Ping(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		log.Fatal(fmt.Errorf("failed to ping database: %w", err))
 	}
 
 	db.SetMaxOpenConns(25)                 // Maximum number of open connections
@@ -36,9 +46,8 @@ func CreatePostgresConnection() (*sql.DB, error) {
 	db.SetConnMaxLifetime(5 * time.Minute) // Maximum connection lifetime
 
 	log.Println("Successfully connected to PostgreSQL database")
-	return db, nil
+	return db
 }
-
 func ConnectRedis(redisHostAddr string, password string, isClustered bool) redis.UniversalClient {
 	if redisHostAddr == "" {
 		log.Fatal("REDIS_HOST environment variable not set")
