@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/21strive/item"
 	"github.com/gofiber/fiber/v2"
@@ -11,7 +12,6 @@ import (
 	"log/slog"
 	"os"
 	"redifu-example/lib"
-	"redifu-example/request"
 	"strings"
 	"time"
 
@@ -114,10 +114,12 @@ func main() {
 	ticketRepository := lib.NewTicketRepository(db, redis)
 	ticketFetcher := lib.NewTicketFetcher(redis)
 
+	accountRepository := lib.NewAccountRepository(db, redis)
+
 	app := fiber.New()
 
 	app.Post("/ticket", func(c *fiber.Ctx) error {
-		var reqBody request.CreateTicketRequest
+		var reqBody CreateTicketRequest
 		if err := c.BodyParser(&reqBody); err != nil {
 			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, err, "T100", "CreateTicket.BodyParser")
 		}
@@ -131,7 +133,7 @@ func main() {
 	})
 
 	app.Patch("/ticket", func(c *fiber.Ctx) error {
-		var reqBody request.UpdateTicketDescriptionRequest
+		var reqBody UpdateTicketDescriptionRequest
 		if err := c.BodyParser(&reqBody); err != nil {
 			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, err, "T100", "UpdateTicketDescription.BodyParser")
 		}
@@ -144,7 +146,7 @@ func main() {
 	})
 
 	app.Post("/ticket/resolve", func(c *fiber.Ctx) error {
-		var reqBody request.UpdateTicketDescriptionRequest
+		var reqBody UpdateTicketDescriptionRequest
 		if err := c.BodyParser(&reqBody); err != nil {
 			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, err, "T100", "UpdateTicketDescription.BodyParser")
 		}
@@ -162,44 +164,11 @@ func main() {
 			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, fmt.Errorf("ticketUUID is empty"), "T100", "DeleteTicket.Params")
 		}
 
-		errDelete := DeleteTicket(request.UpdateTicketDescriptionRequest{TicketUUID: ticketUUID}, ticketRepository)
+		errDelete := DeleteTicket(UpdateTicketDescriptionRequest{TicketUUID: ticketUUID}, ticketRepository)
 		if errDelete != nil {
 			return ConstructErrorResponse(c, "ticket", errDelete.Status, errDelete.Error, errDelete.Code, "DeleteTicket.Delete")
 		}
 		return c.SendStatus(fiber.StatusOK)
-	})
-
-	// Get individual ticket
-	app.Get("/ticket/:ticketRandId", func(c *fiber.Ctx) error {
-		ticketRandId := c.Params("ticketRandId")
-		if ticketRandId == "" {
-			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, fmt.Errorf("ticketRandId is empty"), "T100", "GetTicket.Params")
-		}
-
-		ticket, isBlank, errFetch := Fetch(ticketRandId, ticketFetcher)
-		if errFetch != nil {
-			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
-		}
-		if ticket == nil {
-			if isBlank {
-				return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
-			} else {
-				errSeedTicket := ticketRepository.SeedByRandId(ticketRandId)
-				if errSeedTicket != nil {
-					return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errSeedTicket, "T500", "GetTicket.Seed")
-				}
-
-				ticket, isBlank, errFetch = Fetch(ticketRandId, ticketFetcher)
-				if errFetch != nil {
-					return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
-				}
-				if ticket == nil || isBlank {
-					return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
-				}
-			}
-		}
-
-		return c.JSON(ticket)
 	})
 
 	app.Get("/ticket/timeline", func(c *fiber.Ctx) error {
@@ -292,7 +261,7 @@ func main() {
 			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicketSorted.Fetch")
 		}
 		if requireSeeding {
-			errSeedTicketSorted := ticketRepository.SeedSortedByReporter(reporterUUID)
+			errSeedTicketSorted := ticketRepository.SeedSortedByAccount(reporterUUID)
 			if errSeedTicketSorted != nil {
 				return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errSeedTicketSorted, "T500", "GetTicketSorted.Seed")
 			}
@@ -304,6 +273,67 @@ func main() {
 		}
 
 		return c.JSON(ticket)
+	})
+
+	// Get individual ticket
+	app.Get("/ticket/:ticketRandId", func(c *fiber.Ctx) error {
+		ticketRandId := c.Params("ticketRandId")
+		if ticketRandId == "" {
+			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, fmt.Errorf("ticketRandId is empty"), "T100", "GetTicket.Params")
+		}
+
+		ticket, isBlank, errFetch := Fetch(ticketRandId, ticketFetcher)
+		if errFetch != nil {
+			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
+		}
+		if ticket == nil {
+			if isBlank {
+				return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
+			} else {
+				errSeedTicket := ticketRepository.SeedByRandId(ticketRandId)
+				if errSeedTicket != nil {
+					return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errSeedTicket, "T500", "GetTicket.Seed")
+				}
+
+				ticket, isBlank, errFetch = Fetch(ticketRandId, ticketFetcher)
+				if errFetch != nil {
+					return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
+				}
+				if ticket == nil || isBlank {
+					return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
+				}
+			}
+		}
+
+		return c.JSON(ticket)
+	})
+	app.Patch("/account", func(c *fiber.Ctx) error {
+		var reqBody UpdateAccountRequest
+		if err := c.BodyParser(&reqBody); err != nil {
+			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, err, "T100", "UpdateAccount.BodyParser")
+		}
+
+		account, errUpdate := accountRepository.FindByUUID(reqBody.AccountUUID)
+		if errUpdate != nil {
+			return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errUpdate, "T500", "UpdateAccount.Update")
+		}
+		if account == nil {
+			return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, errors.New("account not found!"), "T404", "UpdateAccount.AccountNotFound")
+		}
+
+		if reqBody.Name != "" {
+			account.Name = reqBody.Name
+		}
+		if reqBody.Email != "" {
+			account.Email = reqBody.Email
+		}
+
+		errUpdate = accountRepository.Update(account)
+		if errUpdate != nil {
+			return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errUpdate, "T500", "UpdateAccount.Update")
+		}
+
+		return c.SendStatus(fiber.StatusOK)
 	})
 
 	app.Listen(":4000")

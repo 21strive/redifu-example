@@ -4,7 +4,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"redifu-example/definition"
 	"redifu-example/lib"
-	"redifu-example/request"
 )
 
 type CommonError struct {
@@ -13,10 +12,9 @@ type CommonError struct {
 	Error  error
 }
 
-func CreateTicket(request request.CreateTicketRequest, ticketRepository *lib.TicketRepository) *CommonError {
+func CreateTicket(request CreateTicketRequest, ticketRepository *lib.TicketRepository) *CommonError {
 	ticket := lib.NewTicket()
 	ticket.SetDescription(request.Description)
-	ticket.SetReporterUUID(request.ReporterUUID)
 
 	errCreate := ticketRepository.Create(ticket)
 	if errCreate != nil {
@@ -30,7 +28,7 @@ func CreateTicket(request request.CreateTicketRequest, ticketRepository *lib.Tic
 	return nil
 }
 
-func UpdateDescription(request request.UpdateTicketDescriptionRequest, ticketRepository *lib.TicketRepository) *CommonError {
+func UpdateDescription(request UpdateTicketDescriptionRequest, ticketRepository *lib.TicketRepository) *CommonError {
 	ticket, errFind := ticketRepository.FindByUUID(request.TicketUUID)
 	if errFind != nil {
 		return &CommonError{
@@ -60,7 +58,7 @@ func UpdateDescription(request request.UpdateTicketDescriptionRequest, ticketRep
 	return nil
 }
 
-func DeleteTicket(request request.UpdateTicketDescriptionRequest, ticketRepository *lib.TicketRepository) *CommonError {
+func DeleteTicket(request UpdateTicketDescriptionRequest, ticketRepository *lib.TicketRepository) *CommonError {
 	ticket, errFind := ticketRepository.FindByUUID(request.TicketUUID)
 	if errFind != nil {
 		return &CommonError{
