@@ -326,12 +326,12 @@ func (t *TicketRepository) SeedTimelineByReporter(subtraction int64, lastRandId 
 
 func (t *TicketRepository) SeedSorted() error {
 	query := "SELECT * FROM ticket"
-	return t.sortedSeeder.SeedAll(query, rowsScanner, nil, nil)
+	return t.sortedSeeder.Seed(query, rowsScanner, nil, nil)
 }
 
 func (t *TicketRepository) SeedSortedByAccount(reporterUUID string) error {
 	query := "SELECT * FROM ticket WHERE account_uuid = $1"
-	return t.sortedSeeder.SeedAll(query, rowsScanner, []interface{}{reporterUUID}, []string{reporterUUID})
+	return t.sortedSeeder.Seed(query, rowsScanner, []interface{}{reporterUUID}, []string{reporterUUID})
 }
 
 func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketRepository {
