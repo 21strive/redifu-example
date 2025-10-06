@@ -1,4 +1,4 @@
-package request
+package main
 
 type CreateTicketRequest struct {
 	Description  string `json:"description"`
@@ -8,4 +8,10 @@ type CreateTicketRequest struct {
 type UpdateTicketDescriptionRequest struct {
 	TicketUUID  string `json:"ticket_uuid"`
 	Description string `json:"description"`
+}
+
+type UpdateAccountRequest struct {
+	AccountUUID string `json:"account_uuid"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
 }
