@@ -2,6 +2,6 @@ package definition
 
 import "time"
 
-var BaseTTL = 24 * time.Hour
-var SortedSetTTL = 12 * time.Hour
-var ItemPerPage = int64(10)
+var BaseTTL = 3 * time.Minute
+var SortedSetTTL = 1 * time.Minute
+var ItemPerPage = int64(5)

@@ -3,14 +3,16 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/21strive/item"
+	"github.com/21strive/redifu"
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
 	"log"
 	"log/slog"
 	"os"
-	"redifu-example/lib"
+	"redifu-example/internal/service"
 	"redifu-example/request"
 	"strings"
 	"time"
@@ -111,8 +113,8 @@ func main() {
 	db := CreatePostgresConnection()
 	redis := ConnectRedis(os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PASSWORD"), false)
 
-	ticketRepository := lib.NewTicketRepository(db, redis)
-	ticketFetcher := lib.NewTicketFetcher(redis)
+	ticketRepository := ticket.NewTicketRepository(db, redis)
+	ticketFetcher := ticket.NewTicketFetcher(redis)
 
 	app := fiber.New()
 
@@ -169,39 +171,6 @@ func main() {
 		return c.SendStatus(fiber.StatusOK)
 	})
 
-	// Get individual ticket
-	app.Get("/ticket/:ticketRandId", func(c *fiber.Ctx) error {
-		ticketRandId := c.Params("ticketRandId")
-		if ticketRandId == "" {
-			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, fmt.Errorf("ticketRandId is empty"), "T100", "GetTicket.Params")
-		}
-
-		ticket, isBlank, errFetch := Fetch(ticketRandId, ticketFetcher)
-		if errFetch != nil {
-			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
-		}
-		if ticket == nil {
-			if isBlank {
-				return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
-			} else {
-				errSeedTicket := ticketRepository.SeedByRandId(ticketRandId)
-				if errSeedTicket != nil {
-					return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errSeedTicket, "T500", "GetTicket.Seed")
-				}
-
-				ticket, isBlank, errFetch = Fetch(ticketRandId, ticketFetcher)
-				if errFetch != nil {
-					return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
-				}
-				if ticket == nil || isBlank {
-					return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
-				}
-			}
-		}
-
-		return c.JSON(ticket)
-	})
-
 	app.Get("/ticket/timeline", func(c *fiber.Ctx) error {
 		var lastRandIdArray []string
 		lastRandId := c.Query("lastRandId")
@@ -211,7 +180,11 @@ func main() {
 
 		ticket, validLastRandId, position, isSeedingRequired, errFetch := FetchTimeline(lastRandIdArray, ticketFetcher)
 		if errFetch != nil {
-			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicketTimeline.Fetch")
+			if errors.Is(errFetch.Error, redifu.ResetPagination) {
+				lastRandIdArray = []string{}
+			} else {
+				return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicketTimeline.Fetch")
+			}
 		}
 
 		if isSeedingRequired {
@@ -306,5 +279,47 @@ func main() {
 		return c.JSON(ticket)
 	})
 
+	// Get individual ticket
+	app.Get("/ticket/:ticketRandId", func(c *fiber.Ctx) error {
+		ticketRandId := c.Params("ticketRandId")
+		if ticketRandId == "" {
+			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, fmt.Errorf("ticketRandId is empty"), "T100", "GetTicket.Params")
+		}
+
+		ticket, isBlank, errFetch := service.Fetch(ticketRandId, ticketFetcher)
+		if errFetch != nil {
+			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
+		}
+		if ticket == nil {
+			if isBlank {
+				return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
+			} else {
+				errSeedTicket := ticketRepository.SeedByRandId(ticketRandId)
+				if errSeedTicket != nil {
+					return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errSeedTicket, "T500", "GetTicket.Seed")
+				}
+
+				ticket, isBlank, errFetch = service.Fetch(ticketRandId, ticketFetcher)
+				if errFetch != nil {
+					return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
+				}
+				if ticket == nil || isBlank {
+					return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
+				}
+			}
+		}
+
+		return c.JSON(ticket)
+	})
+
 	app.Listen(":4000")
+}
+
+//&CommonError{
+//	Status: fiber.StatusInternalServerError,
+//	Code:   "T500",
+//	Error:  errCreate,
+//}
+
+type HTTPHandler struct {
 }

@@ -32,3 +32,5 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.17.0 // indirect
 )
+
+replace github.com/21strive/redifu => /Users/lefalya/Projects/21strive/redifu
