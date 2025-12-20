@@ -10,7 +10,6 @@ import (
 )
 
 type TicketRepository struct {
-	client                 redis.UniversalClient
 	db                     *sql.DB
 	base                   *redifu.Base[*model.Ticket]
 	timeline               *redifu.Timeline[*model.Ticket]
@@ -20,7 +19,6 @@ type TicketRepository struct {
 }
 
 func (t *TicketRepository) Init(
-	redis redis.UniversalClient,
 	db *sql.DB,
 	base *redifu.Base[*model.Ticket],
 	timeline *redifu.Timeline[*model.Ticket],
@@ -44,7 +42,6 @@ func (t *TicketRepository) Init(
 		log.Fatal(errCreateTable)
 	}
 
-	t.client = redis
 	t.db = db
 	t.base = base
 	t.timeline = timeline
@@ -135,8 +132,14 @@ func (t *TicketRepository) FindByRandId(randid string) (*model.Ticket, error) {
 
 	row := stmt.QueryRow(randid)
 	ticket, errScan := rowScanner(row)
+	if errScan != nil {
+		if errScan == sql.ErrNoRows {
+			return nil, definition.NotFound
+		}
+		return nil, errScan
+	}
 
-	return ticket, errScan
+	return ticket, nil
 }
 
 func rowScanner(row *sql.Row) (*model.Ticket, error) {
@@ -187,7 +190,7 @@ func ticketScanner(rows *sql.Rows, relation map[string]redifu.Relation) (*model.
 		account.Email = accountEmail.String
 
 		ticket.AccountRandId = account.RandId
-		errSet := relation["account"].SetItem(*account)
+		errSet := relation["account"].SetItem(account)
 		if errSet != nil {
 			return ticket, errSet
 		}
@@ -199,10 +202,10 @@ func ticketScanner(rows *sql.Rows, relation map[string]redifu.Relation) (*model.
 func (t *TicketRepository) SeedByRandId(randId string) error {
 	ticket, errFind := t.FindByRandId(randId)
 	if errFind != nil {
+		if ticket == nil {
+			t.base.SetBlank(randId)
+		}
 		return errFind
-	}
-	if ticket == nil {
-		return t.base.SetBlank(randId)
 	}
 
 	errSet := t.base.Upsert(ticket)
@@ -257,14 +260,19 @@ func (t *TicketRepository) SeedSortedByReporter(reporterUUID string) error {
 
 func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketRepository {
 	base := redifu.NewBase[*model.Ticket](redisClient, "ticket:%s", definition.BaseTTL)
+	baseAccount := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
+	accountRelation := redifu.NewRelation[*model.Account](baseAccount, "Account", "AccountRandId")
+
 	timeline := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	timeline.AddRelation("account", accountRelation)
 	timelineSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timeline)
+
 	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
+	sortedByAccount.AddRelation("account", accountRelation)
 	sortedByReporterSeeder := redifu.NewSortedSeeder[*model.Ticket](redisClient, db, base, sortedByAccount)
 
 	ticketRepository := &TicketRepository{}
 	ticketRepository.Init(
-		redisClient,
 		db,
 		base,
 		timeline,

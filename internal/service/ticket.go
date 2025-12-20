@@ -12,13 +12,16 @@ import (
 )
 
 type TicketService struct {
-	ticketRepository *repository.TicketRepository
-	ticketFetcher    *fetcher.TicketFetcher
+	ticketRepository  *repository.TicketRepository
+	accountRepository *repository.AccountRepository
+	ticketFetcher     *fetcher.TicketFetcher
+	accountFetcher    *fetcher.AccountFetcher
 }
 
-func (s *TicketService) InitRepository(db *sql.DB, redisClient redis.UniversalClient) {
+func (s *TicketService) InitRepository(db *sql.DB, redisClient redis.UniversalClient, accountRepository *repository.AccountRepository) {
 	ticketRepository := repository.NewTicketRepository(db, redisClient)
 	s.ticketRepository = ticketRepository
+	s.accountRepository = accountRepository
 }
 
 func (s *TicketService) InitFetcher(redisClient redis.UniversalClient) {
@@ -72,24 +75,32 @@ func (s *TicketService) ResolveTicket(ticketUUID string) error {
 	return s.ticketRepository.Update(ticket)
 }
 
-func (s *TicketService) GetTicket(randid string) (*model.Ticket, bool, error) {
+func (s *TicketService) GetTicket(randid string) (*model.Ticket, *model.Account, bool, error) {
 	isBlank, err := s.ticketFetcher.IsBlank(randid)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	if isBlank {
-		return nil, true, nil
+		return nil, nil, false, nil
 	}
 
 	ticket, errFetch := s.ticketFetcher.Fetch(randid)
 	if errFetch != nil {
-		return nil, false, errFetch
+		return nil, nil, false, errFetch
 	}
 
-	return ticket, false, nil
+	accountFromCache, err := s.accountFetcher.FetchByUUID(ticket.AccountUUID)
+	if err != nil {
+		if err == definition.NotFound {
+			return ticket, nil, true, nil
+		}
+		return nil, nil, false, err
+	}
+
+	return ticket, accountFromCache, false, nil
 }
 
-func (s *TicketService) GetTickets(lastRandId []string) ([]model.Ticket, string, string, bool, error) {
+func (s *TicketService) GetTickets(lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
 	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimeline(lastRandId)
 	if errFetch != nil {
 		requiresSeed := false
@@ -114,7 +125,7 @@ func (s *TicketService) GetTickets(lastRandId []string) ([]model.Ticket, string,
 	return tickets, validLastRandId, position, false, nil
 }
 
-func (s *TicketService) GetTicketsByReporter(reporterUUID string) ([]model.Ticket, bool, error) {
+func (s *TicketService) GetTicketsByReporter(reporterUUID string) ([]*model.Ticket, bool, error) {
 	tickets, errFetch := s.ticketFetcher.FetchSortedByReporter(reporterUUID)
 	if errFetch != nil {
 		return nil, false, errFetch
@@ -130,6 +141,34 @@ func (s *TicketService) GetTicketsByReporter(reporterUUID string) ([]model.Ticke
 	}
 
 	return tickets, false, nil
+}
+
+func (s *TicketService) SeedTicket(randId string) error {
+	errSeedTicket := s.ticketRepository.SeedByRandId(randId)
+	if errSeedTicket != nil {
+		return errSeedTicket
+	}
+
+	ticketFromCache, errFetch := s.ticketFetcher.Fetch(randId)
+	if errFetch != nil {
+		return errFetch
+	}
+
+	errSeed := s.accountRepository.SeedByUUID(ticketFromCache.AccountUUID)
+	// allow system to seed target ticket although the reporter account is deleted/not exists
+	if errSeed != nil && errSeed != definition.NotFound {
+		return errSeed
+	}
+
+	return nil
+}
+
+func (s *TicketService) SeedTickets(subtraction int64, lastRandId string) error {
+	return s.ticketRepository.SeedTimeline(subtraction, lastRandId)
+}
+
+func (s *TicketService) SeedTicketsByReporter(reporterUUID string) error {
+	return s.ticketRepository.SeedSortedByReporter(reporterUUID)
 }
 
 func NewTicketService() *TicketService {

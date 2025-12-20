@@ -106,7 +106,41 @@ type FetchController struct {
 	seedHandler   TicketSeeder
 }
 
-func (fh *FetchController) GetTicketTimeline(c *fiber.Ctx) error {
+func (fh *FetchController) GetTicket(c *fiber.Ctx) error {
+	func(c *fiber.Ctx) error {
+		ticketRandId := c.Params("ticketRandId")
+		if ticketRandId == "" {
+			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, fmt.Errorf("ticketRandId is empty"), "T100", "GetTicket.Params")
+		}
+
+		ticket, isBlank, errFetch := service.Fetch(ticketRandId, ticketFetcher)
+		if errFetch != nil {
+			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
+		}
+		if ticket == nil {
+			if isBlank {
+				return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
+			} else {
+				errSeedTicket := ticketRepository.SeedByRandId(ticketRandId)
+				if errSeedTicket != nil {
+					return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errSeedTicket, "T500", "GetTicket.Seed")
+				}
+
+				ticket, isBlank, errFetch = service.Fetch(ticketRandId, ticketFetcher)
+				if errFetch != nil {
+					return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
+				}
+				if ticket == nil || isBlank {
+					return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
+				}
+			}
+		}
+
+		return c.JSON(ticket)
+	}
+}
+
+func (fh *FetchController) GetTickets(c *fiber.Ctx) error {
 	var lastRandIdArray []string
 	lastRandId := c.Query("lastRandId")
 	if lastRandId != "" {
