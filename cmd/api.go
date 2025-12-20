@@ -1,20 +1,11 @@
 package cmd
 
 import (
-	"database/sql"
-	"errors"
-	"fmt"
-	"github.com/21strive/redifu"
 	"github.com/gofiber/fiber/v2"
-	"github.com/redis/go-redis/v9"
 	"os"
-	"redifu-example/internal/service"
-	"redifu-example/pkg/cache"
-	"redifu-example/pkg/dbconn"
-	"redifu-example/pkg/logger"
-	"redifu-example/request"
-	"redifu-example/routes"
-	"strings"
+	"redifu-example/api"
+	"redifu-example/internal/cache"
+	"redifu-example/internal/dbconn"
 )
 
 func InitSetterOnly() {
@@ -22,7 +13,7 @@ func InitSetterOnly() {
 	db := dbconn.CreatePostgresConnection()
 	redis := cache.ConnectRedis(os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PASSWORD"), false)
 
-	routes.SetterEndpoints(&app, db, redis)
+	api.SetterEndpoints(&app, db, redis)
 	app.Listen(":" + os.Getenv("RUNNING_PORT"))
 }
 
@@ -30,7 +21,7 @@ func InitGetterOnly() {
 	app := fiber.App{}
 	redisClient := cache.ConnectRedis(os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PASSWORD"), false)
 
-	routes.GetterEndpoints(&app, redisClient)
+	api.GetterEndpoints(&app, redisClient)
 	app.Listen(":" + os.Getenv("RUNNING_PORT"))
 }
 
@@ -39,8 +30,8 @@ func Init() {
 	db := dbconn.CreatePostgresConnection()
 	redis := cache.ConnectRedis(os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PASSWORD"), false)
 
-	routes.SetterEndpoints(&app, db, redis)
-	routes.GetterEndpoints(&app, redis)
+	api.SetterEndpoints(&app, db, redis)
+	api.GetterEndpoints(&app, redis)
 	app.Listen(":" + os.Getenv("RUNNING_PORT"))
 }
 

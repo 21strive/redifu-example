@@ -89,7 +89,7 @@ func (s *TicketService) GetTicket(randid string) (*model.Ticket, bool, error) {
 	return ticket, false, nil
 }
 
-func (s *TicketService) GetTicketTimeline(lastRandId []string) ([]model.Ticket, string, string, bool, error) {
+func (s *TicketService) GetTickets(lastRandId []string) ([]model.Ticket, string, string, bool, error) {
 	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimeline(lastRandId)
 	if errFetch != nil {
 		requiresSeed := false
@@ -114,46 +114,7 @@ func (s *TicketService) GetTicketTimeline(lastRandId []string) ([]model.Ticket, 
 	return tickets, validLastRandId, position, false, nil
 }
 
-func (s *TicketService) GetTicketTimelineByReporter(lastRandId []string, reporterUUID string) ([]model.Ticket, string, string, bool, error) {
-	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimelineByReporter(lastRandId, reporterUUID)
-	if errFetch != nil {
-		return nil, validLastRandId, position, false, errFetch
-	}
-
-	totalReceivedItems := int64(len(tickets))
-	if totalReceivedItems < definition.ItemPerPage {
-		seedRequired, errCheck := s.ticketFetcher.IsTimelineSeedingRequired(totalReceivedItems)
-		if errCheck != nil {
-			return nil, validLastRandId, position, false, errCheck
-		}
-
-		if seedRequired {
-			return nil, validLastRandId, position, true, nil
-		}
-	}
-
-	return tickets, validLastRandId, position, false, nil
-}
-
-func (s *TicketService) GetTicketSorted() ([]model.Ticket, bool, error) {
-	tickets, errFetch := s.ticketFetcher.FetchSorted()
-	if errFetch != nil {
-		return nil, false, errFetch
-	}
-	if len(tickets) == 0 {
-		isSeedRequired, errCheck := s.ticketFetcher.IsSortedSeedingRequired()
-		if errCheck != nil {
-			return nil, false, errCheck
-		}
-		if isSeedRequired {
-			return nil, true, nil
-		}
-	}
-
-	return tickets, false, nil
-}
-
-func (s *TicketService) GetTicketSortedByReporter(reporterUUID string) ([]model.Ticket, bool, error) {
+func (s *TicketService) GetTicketsByReporter(reporterUUID string) ([]model.Ticket, bool, error) {
 	tickets, errFetch := s.ticketFetcher.FetchSortedByReporter(reporterUUID)
 	if errFetch != nil {
 		return nil, false, errFetch

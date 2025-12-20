@@ -10,31 +10,23 @@ import (
 )
 
 type TicketRepository struct {
-	client                   redis.UniversalClient
-	db                       *sql.DB
-	base                     *redifu.Base[model.Ticket]
-	timeline                 *redifu.Timeline[model.Ticket]
-	timelineSeeder           *redifu.TimelineSeeder[model.Ticket]
-	timelineByReporter       *redifu.Timeline[model.Ticket]
-	timelineByReporterSeeder *redifu.TimelineSeeder[model.Ticket]
-	sorted                   *redifu.Sorted[model.Ticket]
-	sortedSeeder             *redifu.SortedSeeder[model.Ticket]
-	sortedByReporter         *redifu.Sorted[model.Ticket]
-	sortedByReporterSeeder   *redifu.SortedSeeder[model.Ticket]
+	client                 redis.UniversalClient
+	db                     *sql.DB
+	base                   *redifu.Base[*model.Ticket]
+	timeline               *redifu.Timeline[*model.Ticket]
+	timelineSeeder         *redifu.TimelineSeeder[*model.Ticket]
+	sortedByReporter       *redifu.Sorted[*model.Ticket]
+	sortedByReporterSeeder *redifu.SortedSeeder[*model.Ticket]
 }
 
 func (t *TicketRepository) Init(
 	redis redis.UniversalClient,
 	db *sql.DB,
-	base *redifu.Base[model.Ticket],
-	timeline *redifu.Timeline[model.Ticket],
-	timelineSeeder *redifu.TimelineSeeder[model.Ticket],
-	timelineByReporter *redifu.Timeline[model.Ticket],
-	timelineByReporterSeeder *redifu.TimelineSeeder[model.Ticket],
-	sorted *redifu.Sorted[model.Ticket],
-	sortedSeeder *redifu.SortedSeeder[model.Ticket],
-	sortedByReporter *redifu.Sorted[model.Ticket],
-	sortedByReporterSeeder *redifu.SortedSeeder[model.Ticket],
+	base *redifu.Base[*model.Ticket],
+	timeline *redifu.Timeline[*model.Ticket],
+	timelineSeeder *redifu.TimelineSeeder[*model.Ticket],
+	sortedByReporter *redifu.Sorted[*model.Ticket],
+	sortedByReporterSeeder *redifu.SortedSeeder[*model.Ticket],
 ) {
 	createTable := `
 		CREATE TABLE IF NOT EXISTS ticket ( 
@@ -57,10 +49,6 @@ func (t *TicketRepository) Init(
 	t.base = base
 	t.timeline = timeline
 	t.timelineSeeder = timelineSeeder
-	t.timelineByReporter = timelineByReporter
-	t.timelineByReporterSeeder = timelineByReporterSeeder
-	t.sorted = sorted
-	t.sortedSeeder = sortedSeeder
 	t.sortedByReporter = sortedByReporter
 	t.sortedByReporterSeeder = sortedByReporterSeeder
 }
@@ -73,15 +61,13 @@ func (t *TicketRepository) Create(ticket *model.Ticket) error {
 	}
 	defer stmt.Close()
 
-	_, errCreate := stmt.Exec(ticket.GetUUID(), ticket.GetRandId(), ticket.GetCreatedAt(), ticket.GetUpdatedAt(), ticket.Description, ticket.Resolved, ticket.ReporterUUID)
+	_, errCreate := stmt.Exec(ticket.GetUUID(), ticket.GetRandId(), ticket.GetCreatedAt(), ticket.GetUpdatedAt(), ticket.Description, ticket.Resolved, ticket.AccountUUID)
 	if errCreate != nil {
 		return errCreate
 	}
 
-	t.timeline.AddItem(*ticket, nil)
-	t.timelineByReporter.AddItem(*ticket, []string{ticket.ReporterUUID})
-	t.sorted.AddItem(*ticket, nil)
-	t.sorted.AddItem(*ticket, []string{ticket.ReporterUUID})
+	t.timeline.AddItem(ticket, nil)
+	t.sortedByReporter.AddItem(ticket, []string{ticket.AccountUUID})
 
 	return nil
 }
@@ -99,7 +85,7 @@ func (t *TicketRepository) Update(ticket *model.Ticket) error {
 		return errUpdate
 	}
 
-	errUpset := t.base.Upsert(*ticket)
+	errUpset := t.base.Upsert(ticket)
 	return errUpset
 }
 
@@ -116,10 +102,8 @@ func (t *TicketRepository) Delete(ticket *model.Ticket) error {
 		return errDelete
 	}
 
-	t.timeline.RemoveItem(*ticket, nil)
-	t.timelineByReporter.RemoveItem(*ticket, []string{ticket.ReporterUUID})
-	t.sorted.RemoveItem(*ticket, nil)
-	t.sorted.RemoveItem(*ticket, []string{ticket.ReporterUUID})
+	t.timeline.RemoveItem(ticket, nil)
+	t.sortedByReporter.RemoveItem(ticket, []string{ticket.AccountUUID})
 
 	return nil
 }
@@ -138,7 +122,7 @@ func (t *TicketRepository) FindByUUID(uuid string) (*model.Ticket, error) {
 		return nil, errScan
 	}
 
-	return &ticket, nil
+	return ticket, nil
 }
 
 func (t *TicketRepository) FindByRandId(randid string) (*model.Ticket, error) {
@@ -152,19 +136,64 @@ func (t *TicketRepository) FindByRandId(randid string) (*model.Ticket, error) {
 	row := stmt.QueryRow(randid)
 	ticket, errScan := rowScanner(row)
 
-	return &ticket, errScan
+	return ticket, errScan
 }
 
-func rowScanner(row *sql.Row) (model.Ticket, error) {
+func rowScanner(row *sql.Row) (*model.Ticket, error) {
 	ticket := model.NewTicket()
-	errScan := row.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.Description, &ticket.Resolved, &ticket.ReporterUUID)
-	return *ticket, errScan
+	errScan := row.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.Description, &ticket.Resolved, &ticket.AccountUUID)
+	return ticket, errScan
 }
 
-func rowsScanner(rows *sql.Rows) (model.Ticket, error) {
+func ticketScanner(rows *sql.Rows, relation map[string]redifu.Relation) (*model.Ticket, error) {
+	account := model.NewAccount()
 	ticket := model.NewTicket()
-	errScan := rows.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.Description, &ticket.Resolved, &ticket.ReporterUUID)
-	return *ticket, errScan
+
+	// Use sql.Null* types for nullable fields from the join
+	var accountUUID sql.NullString
+	var accountRandId sql.NullString
+	var accountCreatedAt sql.NullTime
+	var accountUpdatedAt sql.NullTime
+	var accountName sql.NullString
+	var accountEmail sql.NullString
+
+	errScan := rows.Scan(
+		&ticket.UUID,
+		&ticket.RandId,
+		&ticket.CreatedAt,
+		&ticket.UpdatedAt,
+		&ticket.Description,
+		&ticket.Resolved,
+		&ticket.AccountUUID,
+		&accountUUID,
+		&accountRandId,
+		&accountCreatedAt,
+		&accountUpdatedAt,
+		&accountName,
+		&accountEmail,
+	)
+
+	if errScan != nil {
+		return ticket, errScan
+	}
+
+	// Only populate account if the join returned data (not NULL)
+	if accountRandId.Valid {
+		account.UUID = accountUUID.String
+		account.RandId = accountRandId.String
+		account.CreatedAt = accountCreatedAt.Time
+		account.UpdatedAt = accountUpdatedAt.Time
+		account.Name = accountName.String
+		account.Email = accountEmail.String
+
+		ticket.AccountRandId = account.RandId
+		errSet := relation["account"].SetItem(*account)
+		if errSet != nil {
+			return ticket, errSet
+		}
+	}
+
+	return ticket, nil
 }
 
 func (t *TicketRepository) SeedByRandId(randId string) error {
@@ -176,7 +205,7 @@ func (t *TicketRepository) SeedByRandId(randId string) error {
 		return t.base.SetBlank(randId)
 	}
 
-	errSet := t.base.Upsert(*ticket)
+	errSet := t.base.Upsert(ticket)
 	if errSet != nil {
 		return errSet
 	}
@@ -185,61 +214,53 @@ func (t *TicketRepository) SeedByRandId(randId string) error {
 }
 
 func (t *TicketRepository) SeedTimeline(subtraction int64, lastRandId string) error {
-	rowQuery := "SELECT * FROM ticket WHERE randid = $1"
-	firstPageQuery := "SELECT * FROM ticket ORDER BY created_at DESC"
-	nextPageQuery := "SELECT * FROM ticket WHERE created_at < $1 ORDER BY created_at DESC"
 
-	return t.timelineSeeder.SeedPartial(
+	rowQuery := `
+		  SELECT t.*, a.* 
+		  FROM ticket t
+		  LEFT JOIN account a ON t.account_uuid = a.uuid
+		  WHERE t.randid = $1
+		`
+
+	firstPageQuery := `
+		  SELECT t.*, a.* 
+		  FROM ticket t
+		  LEFT JOIN account a ON t.account_uuid = a.uuid
+		  ORDER BY t.created_at DESC
+		`
+
+	nextPageQuery := `
+		  SELECT t.*, a.* 
+		  FROM ticket t
+		  LEFT JOIN account a ON t.account_uuid = a.uuid
+		  WHERE t.created_at < $1 
+		  ORDER BY t.created_at DESC
+		`
+
+	return t.timelineSeeder.SeedPartialWithRelation(
 		rowQuery,
 		firstPageQuery,
 		nextPageQuery,
 		rowScanner,
-		rowsScanner,
+		ticketScanner,
 		nil,
 		subtraction,
 		lastRandId,
 		nil,
 	)
-}
-
-func (t *TicketRepository) SeedTimelineByReporter(subtraction int64, lastRandId string, reporterUUID string) error {
-	rowQuery := "SELECT * FROM ticket WHERE randid = $1"
-	firstPageQuery := "SELECT * FROM ticket ORDER BY created_at DESC"
-	nextPageQuery := "SELECT * FROM ticket WHERE created_at < $1 ORDER BY created_at DESC"
-
-	return t.timelineSeeder.SeedPartial(
-		rowQuery,
-		firstPageQuery,
-		nextPageQuery,
-		rowScanner,
-		rowsScanner,
-		[]interface{}{reporterUUID},
-		subtraction,
-		lastRandId,
-		[]string{reporterUUID},
-	)
-}
-
-func (t *TicketRepository) SeedSorted() error {
-	query := "SELECT * FROM ticket"
-	return t.sortedSeeder.Seed(query, rowsScanner, nil, nil)
 }
 
 func (t *TicketRepository) SeedSortedByReporter(reporterUUID string) error {
 	query := "SELECT * FROM ticket WHERE account_uuid = $1"
-	return t.sortedSeeder.Seed(query, rowsScanner, []interface{}{reporterUUID}, []string{reporterUUID})
+	return t.sortedByReporterSeeder.SeedWithRelation(query, ticketScanner, []interface{}{reporterUUID}, []string{reporterUUID})
 }
 
 func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketRepository {
-	base := redifu.NewBase[model.Ticket](redisClient, "ticket:%s", definition.BaseTTL)
-	timeline := redifu.NewTimeline[model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
-	timelineSeeeder := redifu.NewTimelineSeeder[model.Ticket](redisClient, db, base, timeline)
-	timelineByReporter := redifu.NewTimeline[model.Ticket](redisClient, base, "ticket-timeline:%s", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
-	timelineByReporterSeeeder := redifu.NewTimelineSeeder[model.Ticket](redisClient, db, base, timelineByReporter)
-	sorted := redifu.NewSorted[model.Ticket](redisClient, base, "ticket-sorted", definition.SortedSetTTL)
-	sortedSeeeder := redifu.NewSortedSeeder[model.Ticket](redisClient, db, base, sorted)
-	sortedByReporter := redifu.NewSorted[model.Ticket](redisClient, base, "ticket-sorted:%s", definition.SortedSetTTL)
-	sortedByReporterSeeeder := redifu.NewSortedSeeder[model.Ticket](redisClient, db, base, sortedByReporter)
+	base := redifu.NewBase[*model.Ticket](redisClient, "ticket:%s", definition.BaseTTL)
+	timeline := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	timelineSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timeline)
+	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
+	sortedByReporterSeeder := redifu.NewSortedSeeder[*model.Ticket](redisClient, db, base, sortedByAccount)
 
 	ticketRepository := &TicketRepository{}
 	ticketRepository.Init(
@@ -247,13 +268,9 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 		db,
 		base,
 		timeline,
-		timelineSeeeder,
-		timelineByReporter,
-		timelineByReporterSeeeder,
-		sorted,
-		sortedSeeeder,
-		sortedByReporter,
-		sortedByReporterSeeeder)
+		timelineSeeder,
+		sortedByAccount,
+		sortedByReporterSeeder)
 
 	return ticketRepository
 }

@@ -42,22 +42,6 @@ func (t *TicketFetcher) IsTimelineSeedingRequired(totalReceivedItem int64) (bool
 	return t.timeline.RequiresSeeding(nil, totalReceivedItem)
 }
 
-func (t *TicketFetcher) FetchTimelineByReporter(lastRandId []string, reporterUUID string) ([]model.Ticket, string, string, error) {
-	return t.timeline.Fetch([]string{reporterUUID}, lastRandId, nil, nil)
-}
-
-func (t *TicketFetcher) IsTimelineByReporterSeedingRequired(totalReceivedItem int64, reporterUUID string) (bool, error) {
-	return t.timeline.RequiresSeeding([]string{reporterUUID}, totalReceivedItem)
-}
-
-func (t *TicketFetcher) FetchSorted() ([]model.Ticket, error) {
-	return t.sorted.Fetch(nil, redifu.Descending, nil, nil)
-}
-
-func (t *TicketFetcher) IsSortedSeedingRequired() (bool, error) {
-	return t.sorted.RequiresSeeding(nil)
-}
-
 func (t *TicketFetcher) FetchSortedByReporter(reporterUUID string) ([]model.Ticket, error) {
 	return t.sorted.Fetch([]string{reporterUUID}, redifu.Descending, nil, nil)
 }

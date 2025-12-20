@@ -1,12 +1,12 @@
-package routes
+package api
 
 import (
 	"database/sql"
 	"fmt"
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
+	"redifu-example/api/controller"
 	"redifu-example/internal/service"
-	"redifu-example/routes/controller"
 	"strings"
 )
 
@@ -21,33 +21,7 @@ func SetterEndpoints(app *fiber.App, db *sql.DB, redisClient redis.UniversalClie
 func GetterEndpoints(app *fiber.App, redisClient redis.UniversalClient) error {
 	fetchController := controller.NewFetchController(redisClient)
 	app.Get("/ticket/timeline", fetchController.GetTicketTimeline)
-	app.Get("/ticket/timeline/:reporterUUID", fetchController.GetTicketTimelineByReporter)
-
-	app.Get("/ticket/sorted", func(c *fiber.Ctx) error {
-
-	})
-
-	app.Get("/ticket/sorted/:reporterUUID", func(c *fiber.Ctx) error {
-		reporterUUID := c.Params("reporterUUID")
-		ticket, requireSeeding, errFetch := FetchSortedByReporter(reporterUUID, ticketFetcher)
-		if errFetch != nil {
-			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicketSorted.Fetch")
-		}
-		if requireSeeding {
-			errSeedTicketSorted := ticketRepository.SeedSortedByReporter(reporterUUID)
-			if errSeedTicketSorted != nil {
-				return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errSeedTicketSorted, "T500", "GetTicketSorted.Seed")
-			}
-
-			ticket, requireSeeding, errFetch = FetchSortedByReporter(reporterUUID, ticketFetcher)
-			if errFetch != nil {
-				return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicketSorted.Fetch")
-			}
-		}
-
-		return c.JSON(ticket)
-	})
-
+	app.Get("/ticket/sorted/:reporterUUID", fetchController.GetTicketsByReporter)
 	// Get individual ticket
 	app.Get("/ticket/:ticketRandId", func(c *fiber.Ctx) error {
 		ticketRandId := c.Params("ticketRandId")
