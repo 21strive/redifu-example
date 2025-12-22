@@ -5,6 +5,7 @@ import (
 	_ "github.com/lib/pq"
 	"os"
 	"redifu-example/api"
+	"redifu-example/api/controller"
 	"redifu-example/internal/cache"
 	"redifu-example/internal/dbconn"
 )
@@ -25,7 +26,7 @@ func InitGetterOnly() {
 	redisClient := cache.ConnectRedis(os.Getenv("REDIS_HOST"), os.Getenv("REDIS_USER"),
 		os.Getenv("REDIS_PASS"), false)
 
-	api.GetterEndpoints(app, redisClient)
+	api.GetterEndpoints(app, redisClient, nil)
 	app.Listen(":" + os.Getenv("RUNNING_PORT"))
 }
 
@@ -37,7 +38,15 @@ func Init() {
 		os.Getenv("REDIS_PASS"), false)
 
 	api.SetterEndpoints(app, db, redisClient)
-	api.GetterEndpoints(app, redisClient)
+
+	var seedHandler controller.TicketSeeder
+	if os.Getenv("OP_MODE") == "" {
+		seedHandler = controller.NewSelfSeedHandler(db, redisClient)
+	} else if os.Getenv("OP_MODE") == "GETTER" {
+		// seedHandler = GRPCHandler
+	}
+
+	api.GetterEndpoints(app, redisClient, seedHandler)
 	app.Listen(":" + os.Getenv("RUNNING_PORT"))
 }
 

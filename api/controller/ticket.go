@@ -7,7 +7,6 @@ import (
 	"github.com/21strive/redifu"
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
-	"os"
 	"redifu-example/internal/logger"
 	"redifu-example/pkg/service"
 	"strings"
@@ -16,6 +15,7 @@ import (
 type CreateTicketRequest struct {
 	Description  string `json:"description"`
 	ReporterUUID string `json:"reporter_uuid"`
+	SecurityRisk int64  `json:"security_risk"`
 }
 
 type UpdateTicketDescriptionRequest struct {
@@ -29,12 +29,6 @@ type UpdateAccountRequest struct {
 	Email       string `json:"email"`
 }
 
-type TicketSeeder interface {
-	SeedTimeline(int64, string) error
-	SeedSortedByReporter(string) error
-	SeedByRandId(string) error
-}
-
 type TicketCUDController struct {
 	ticketService *service.TicketService
 }
@@ -45,7 +39,7 @@ func (cud *TicketCUDController) CreateTicket(c *fiber.Ctx) error {
 		return logger.Error(c, fiber.StatusBadRequest, err, "T100", "CreateTicket.BodyParser")
 	}
 
-	errCreate := cud.ticketService.Create(reqBody.Description, reqBody.ReporterUUID)
+	errCreate := cud.ticketService.Create(reqBody.Description, reqBody.ReporterUUID, reqBody.SecurityRisk)
 	if errCreate != nil {
 		return logger.Error(c, fiber.StatusInternalServerError, errCreate, "T500", "CreateTicket.Create")
 	}
@@ -121,7 +115,7 @@ func (fh *TicketFetchController) GetTicket(c *fiber.Ctx) error {
 		if isBlank {
 			return logger.Error(c, fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
 		} else {
-			errSeedTicket := fh.seedHandler.SeedByRandId(ticketRandId)
+			errSeedTicket := fh.seedHandler.SeedTicket(ticketRandId)
 			if errSeedTicket != nil {
 				return logger.Error(c, fiber.StatusInternalServerError, errSeedTicket, "T500", "GetTicket.Seed")
 			}
@@ -159,7 +153,7 @@ func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
 	}
 
 	if isSeedingRequired {
-		errSeedTicketTimeline := fh.seedHandler.SeedTimeline(int64(len(ticket)), validLastRandId)
+		errSeedTicketTimeline := fh.seedHandler.SeedTickets(int64(len(ticket)), validLastRandId)
 		if errSeedTicketTimeline != nil {
 			return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketTimeline, "T500", "GetTickets.Seed")
 		}
@@ -184,7 +178,7 @@ func (fh *TicketFetchController) GetTicketsByReporter(c *fiber.Ctx) error {
 		return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketSorted.Fetch")
 	}
 	if requireSeeding {
-		errSeedTicketSorted := fh.seedHandler.SeedSortedByReporter(accountUUID)
+		errSeedTicketSorted := fh.seedHandler.SeedByAccount(accountUUID)
 		if errSeedTicketSorted != nil {
 			return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketSorted, "T500", "GetTicketSorted.Seed")
 		}
@@ -198,40 +192,47 @@ func (fh *TicketFetchController) GetTicketsByReporter(c *fiber.Ctx) error {
 	return c.JSON(ticket)
 }
 
-func NewTicketFetchController(redisClient redis.UniversalClient) *TicketFetchController {
+func NewTicketFetchController(redisClient redis.UniversalClient, seeder TicketSeeder) *TicketFetchController {
 	ticketService := service.NewTicketService()
 	ticketService.InitFetcher(redisClient)
 
-	var seedHandler TicketSeeder
-	if os.Getenv("OP_MODE") == "MONO" {
-		seedHandler = NewSelfSeedHandler()
-	} else if os.Getenv("OP_MODE") == "GETTER" {
-		// seedHandler = GRPCHandler
-	}
-
 	return &TicketFetchController{
 		ticketService: ticketService,
-		seedHandler:   seedHandler,
+		seedHandler:   seeder,
 	}
 }
 
-type SelfTicketSeedHandler struct {
+type TicketSeeder interface {
+	SeedTickets(int64, string) error
+	SeedByAccount(string) error
+	SeedTicket(string) error
 }
 
-func (sh *SelfTicketSeedHandler) SeedTimeline(int64, string) error {
-	return nil
+type TicketSeedHandler struct {
+	ticketService *service.TicketService
 }
 
-func (sh *SelfTicketSeedHandler) SeedSortedByReporter(string) error {
-	return nil
+func (sh *TicketSeedHandler) SeedTickets(subtraction int64, lastRandId string) error {
+	return sh.ticketService.SeedTickets(subtraction, lastRandId)
 }
 
-func (sh *SelfTicketSeedHandler) SeedByRandId(string) error {
-	return nil
+func (sh *TicketSeedHandler) SeedByAccount(accountUUID string) error {
+	return sh.ticketService.SeedTicketsByAccount(accountUUID)
 }
 
-func NewSelfSeedHandler() *SelfTicketSeedHandler {
-	return &SelfTicketSeedHandler{}
+func (sh *TicketSeedHandler) SeedTicket(randId string) error {
+	return sh.ticketService.SeedTicket(randId)
+}
+
+func NewSelfSeedHandler(db *sql.DB, redisClient redis.UniversalClient) *TicketSeedHandler {
+	ticketService := service.NewTicketService()
+	accountService := service.NewAccountService()
+	accountService.InitRepository(db, redisClient)
+
+	ticketService.InitRepository(db, redisClient, accountService)
+	return &TicketSeedHandler{
+		ticketService: ticketService,
+	}
 }
 
 // Implement type GRPCSeedHandler here

@@ -28,10 +28,11 @@ func (s *TicketService) InitFetcher(redisClient redis.UniversalClient) {
 	s.ticketFetcher = ticketFetcher
 }
 
-func (s *TicketService) Create(description string, accountUUID string) error {
+func (s *TicketService) Create(description string, accountUUID string, securityRisk int64) error {
 	ticket := model.NewTicket()
 	ticket.SetDescription(description)
 	ticket.SetAccountUUID(accountUUID)
+	ticket.SetSecurityRisk(securityRisk)
 
 	return s.ticketRepository.Create(ticket)
 }
@@ -143,7 +144,7 @@ func (s *TicketService) GetTicketsByReporter(reporterUUID string) ([]*model.Tick
 }
 
 func (s *TicketService) SeedTicket(randId string) error {
-	errSeedTicket := s.ticketRepository.SeedByRandId(randId)
+	errSeedTicket := s.ticketRepository.SeedTicket(randId)
 	if errSeedTicket != nil {
 		return errSeedTicket
 	}
@@ -163,11 +164,11 @@ func (s *TicketService) SeedTicket(randId string) error {
 }
 
 func (s *TicketService) SeedTickets(subtraction int64, lastRandId string) error {
-	return s.ticketRepository.SeedTimeline(subtraction, lastRandId)
+	return s.ticketRepository.SeedTickets(subtraction, lastRandId)
 }
 
-func (s *TicketService) SeedTicketsByReporter(reporterUUID string) error {
-	return s.ticketRepository.SeedSortedByReporter(reporterUUID)
+func (s *TicketService) SeedTicketsByAccount(reporterUUID string) error {
+	return s.ticketRepository.SeedByAccount(reporterUUID)
 }
 
 func NewTicketService() *TicketService {

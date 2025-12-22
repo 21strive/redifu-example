@@ -9,19 +9,26 @@ import (
 
 func SetterEndpoints(app *fiber.App, db *sql.DB, redisClient redis.UniversalClient) {
 	cudController := controller.NewTicketCUDController(db, redisClient)
-	app.Post("/ticket", cudController.CreateTicket)
-	app.Patch("/ticket", cudController.PatchTicket)
-	app.Post("/ticket/resolve", cudController.ResolveTicket)
-	app.Delete("/ticket/:ticketUUID", cudController.DeleteTicket)
 
+	// Ticket management group
+	ticketGroup := app.Group("/ticket")
+	ticketGroup.Post("/", cudController.CreateTicket)
+	ticketGroup.Patch("/", cudController.PatchTicket)
+	ticketGroup.Post("/resolve", cudController.ResolveTicket)
+	ticketGroup.Delete("/:ticketUUID", cudController.DeleteTicket)
+
+	// Account management group
+	accountGroup := app.Group("/account")
 	accountController := controller.NewAccountCUDController(db, redisClient)
-	app.Post("/account", accountController.CreateAccount)
+	accountGroup.Post("/", accountController.CreateAccount)
 }
 
-func GetterEndpoints(app *fiber.App, redisClient redis.UniversalClient) {
-	fetchController := controller.NewTicketFetchController(redisClient)
-	app.Get("/ticket/timeline", fetchController.GetTickets)
-	app.Get("/ticket/sorted/:reporterUUID", fetchController.GetTicketsByReporter)
-	// Get individual ticket
-	app.Get("/ticket/:ticketRandId", fetchController.GetTicket)
+func GetterEndpoints(app *fiber.App, redisClient redis.UniversalClient, ticketSeeder controller.TicketSeeder) {
+	fetchController := controller.NewTicketFetchController(redisClient, ticketSeeder)
+
+	// Ticket retrieval group
+	ticketGroup := app.Group("/ticket")
+	ticketGroup.Get("/", fetchController.GetTickets)
+	ticketGroup.Get("/account/:reporterUUID", fetchController.GetTicketsByReporter)
+	ticketGroup.Get("/:ticketRandId", fetchController.GetTicket)
 }

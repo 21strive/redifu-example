@@ -7,8 +7,9 @@ type Ticket struct {
 	Description   string `json:"description"`
 	Resolved      bool   `json:"action_taken"`
 	AccountUUID   string `json:"account_uuid"`
-	AccountRandId string `json:"-"`
-	SecurityRisk  int64  `json:"security_risk"`
+	AccountRandId string
+	Account       *Account `json:"account"`
+	SecurityRisk  int64    `json:"security_risk"`
 }
 
 func (t *Ticket) SetDescription(description string) {
@@ -21,6 +22,10 @@ func (t *Ticket) SetAccountUUID(accountUUID string) {
 
 func (t *Ticket) SetResolved() {
 	t.Resolved = true
+}
+
+func (t *Ticket) SetSecurityRisk(risk int64) {
+	t.SecurityRisk = risk
 }
 
 func NewTicket() *Ticket {

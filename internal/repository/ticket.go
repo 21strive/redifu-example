@@ -9,12 +9,14 @@ import (
 )
 
 type TicketRepository struct {
-	db                     *sql.DB
-	base                   *redifu.Base[*model.Ticket]
-	timeline               *redifu.Timeline[*model.Ticket]
-	timelineSeeder         *redifu.TimelineSeeder[*model.Ticket]
-	sortedByReporter       *redifu.Sorted[*model.Ticket]
-	sortedByReporterSeeder *redifu.SortedSeeder[*model.Ticket]
+	db                           *sql.DB
+	base                         *redifu.Base[*model.Ticket]
+	timeline                     *redifu.Timeline[*model.Ticket]
+	timelineSeeder               *redifu.TimelineSeeder[*model.Ticket]
+	timelineBySecurityRisk       *redifu.Timeline[*model.Ticket]
+	timelineBySecurityRiskSeeder *redifu.TimelineSeeder[*model.Ticket]
+	sortedByReporter             *redifu.Sorted[*model.Ticket]
+	sortedByReporterSeeder       *redifu.SortedSeeder[*model.Ticket]
 }
 
 func (t *TicketRepository) Init(
@@ -22,6 +24,8 @@ func (t *TicketRepository) Init(
 	base *redifu.Base[*model.Ticket],
 	timeline *redifu.Timeline[*model.Ticket],
 	timelineSeeder *redifu.TimelineSeeder[*model.Ticket],
+	timelineBySecurityRisk *redifu.Timeline[*model.Ticket],
+	timelineBySecurityRiskSeeder *redifu.TimelineSeeder[*model.Ticket],
 	sortedByReporter *redifu.Sorted[*model.Ticket],
 	sortedByReporterSeeder *redifu.SortedSeeder[*model.Ticket],
 ) {
@@ -29,6 +33,8 @@ func (t *TicketRepository) Init(
 	t.base = base
 	t.timeline = timeline
 	t.timelineSeeder = timelineSeeder
+	t.timelineBySecurityRisk = timelineBySecurityRisk
+	t.timelineBySecurityRiskSeeder = timelineBySecurityRiskSeeder
 	t.sortedByReporter = sortedByReporter
 	t.sortedByReporterSeeder = sortedByReporterSeeder
 }
@@ -183,7 +189,7 @@ func ticketScanner(rows *sql.Rows, relation map[string]redifu.Relation) (*model.
 	return ticket, nil
 }
 
-func (t *TicketRepository) SeedByRandId(randId string) error {
+func (t *TicketRepository) SeedTicket(randId string) error {
 	ticket, errFind := t.FindByRandId(randId)
 	if errFind != nil {
 		if ticket == nil {
@@ -200,13 +206,11 @@ func (t *TicketRepository) SeedByRandId(randId string) error {
 	return nil
 }
 
-func (t *TicketRepository) SeedTimeline(subtraction int64, lastRandId string) error {
+func (t *TicketRepository) SeedTickets(subtraction int64, lastRandId string) error {
 
 	rowQuery := `
-		  SELECT t.*, a.* 
-		  FROM ticket t
-		  LEFT JOIN account a ON t.account_uuid = a.uuid
-		  WHERE t.randid = $1
+		  SELECT * FROM ticket
+		  WHERE randid = $1
 		`
 
 	firstPageQuery := `
@@ -237,7 +241,7 @@ func (t *TicketRepository) SeedTimeline(subtraction int64, lastRandId string) er
 	)
 }
 
-func (t *TicketRepository) SeedSortedByReporter(reporterUUID string) error {
+func (t *TicketRepository) SeedByAccount(reporterUUID string) error {
 	query := "SELECT * FROM ticket WHERE account_uuid = $1"
 	return t.sortedByReporterSeeder.SeedWithRelation(query, ticketScanner, []interface{}{reporterUUID}, []string{reporterUUID})
 }
@@ -251,6 +255,11 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 	timeline.AddRelation("account", accountRelation)
 	timelineSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timeline)
 
+	timelineBySecurityRisk := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	timelineBySecurityRisk.AddRelation("account", accountRelation)
+	timelineBySecurityRisk.SetSortingReference("SecurityRisk")
+	timelineBySecurityRiskSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timelineBySecurityRisk)
+
 	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
 	sortedByAccount.AddRelation("account", accountRelation)
 	sortedByReporterSeeder := redifu.NewSortedSeeder[*model.Ticket](redisClient, db, base, sortedByAccount)
@@ -261,6 +270,8 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 		base,
 		timeline,
 		timelineSeeder,
+		timelineBySecurityRisk,
+		timelineBySecurityRiskSeeder,
 		sortedByAccount,
 		sortedByReporterSeeder)
 
