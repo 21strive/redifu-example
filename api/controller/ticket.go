@@ -137,38 +137,75 @@ func (fh *TicketFetchController) GetTicket(c *fiber.Ctx) error {
 }
 
 func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
-	var lastRandIdArray []string
-	lastRandId := c.Query("lastRandId")
-	if lastRandId != "" {
-		lastRandIdArray = strings.Split(lastRandId, ",")
-	}
+	sortBy := c.Query("sort")
 
-	ticket, validLastRandId, position, isSeedingRequired, errFetch := fh.ticketService.GetTickets(lastRandIdArray)
-	if errFetch != nil {
-		if errors.Is(errFetch, redifu.ResetPagination) {
-			lastRandIdArray = []string{}
-		} else {
-			return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTickets.Fetch")
-		}
-	}
-
-	if isSeedingRequired {
-		errSeedTicketTimeline := fh.seedHandler.SeedTickets(int64(len(ticket)), validLastRandId)
-		if errSeedTicketTimeline != nil {
-			return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketTimeline, "T500", "GetTickets.Seed")
+	if sortBy == "security" {
+		var lastRandIdArray []string
+		lastRandId := c.Query("lastRandId")
+		if lastRandId != "" {
+			lastRandIdArray = strings.Split(lastRandId, ",")
 		}
 
-		ticket, validLastRandId, position, isSeedingRequired, errFetch = fh.ticketService.GetTickets(lastRandIdArray)
+		tickets, validLastRandId, position, isSeedingRequired, errFetch := fh.ticketService.GetTicketsBySecurityRisk(lastRandIdArray)
 		if errFetch != nil {
-			return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketTimelineAfterSeed.Fetch")
+			if errors.Is(errFetch, redifu.ResetPagination) {
+				lastRandIdArray = []string{}
+			} else {
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsBySecurityRisk.Fetch")
+			}
 		}
-	}
 
-	c.Set("Content-Type", "application/json")
-	return c.JSON(map[string]interface{}{
-		"position": position,
-		"tickets":  ticket,
-	})
+		if isSeedingRequired {
+			errSeedTicketTimeline := fh.seedHandler.SeedTicketBySecurityRisk(int64(len(tickets)), validLastRandId)
+			if errSeedTicketTimeline != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketTimeline, "T500", "GetTicketsBySecurityRisk.Seed")
+			}
+
+			tickets, validLastRandId, position, isSeedingRequired, errFetch = fh.ticketService.GetTicketsBySecurityRisk(lastRandIdArray)
+			if errFetch != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsBySecurityRiskAfterSeed.Fetch")
+			}
+		}
+
+		c.Set("Content-Type", "application/json")
+		return c.JSON(map[string]interface{}{
+			"position": position,
+			"tickets":  tickets,
+		})
+	} else {
+		var lastRandIdArray []string
+		lastRandId := c.Query("lastRandId")
+		if lastRandId != "" {
+			lastRandIdArray = strings.Split(lastRandId, ",")
+		}
+
+		ticket, validLastRandId, position, isSeedingRequired, errFetch := fh.ticketService.GetTickets(lastRandIdArray)
+		if errFetch != nil {
+			if errors.Is(errFetch, redifu.ResetPagination) {
+				lastRandIdArray = []string{}
+			} else {
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTickets.Fetch")
+			}
+		}
+
+		if isSeedingRequired {
+			errSeedTicketTimeline := fh.seedHandler.SeedTickets(int64(len(ticket)), validLastRandId)
+			if errSeedTicketTimeline != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketTimeline, "T500", "GetTickets.Seed")
+			}
+
+			ticket, validLastRandId, position, isSeedingRequired, errFetch = fh.ticketService.GetTickets(lastRandIdArray)
+			if errFetch != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketTimelineAfterSeed.Fetch")
+			}
+		}
+
+		c.Set("Content-Type", "application/json")
+		return c.JSON(map[string]interface{}{
+			"position": position,
+			"tickets":  ticket,
+		})
+	}
 }
 
 func (fh *TicketFetchController) GetTicketsByReporter(c *fiber.Ctx) error {
@@ -204,6 +241,7 @@ func NewTicketFetchController(redisClient redis.UniversalClient, seeder TicketSe
 
 type TicketSeeder interface {
 	SeedTickets(int64, string) error
+	SeedTicketBySecurityRisk(int64, string) error
 	SeedByAccount(string) error
 	SeedTicket(string) error
 }
@@ -214,6 +252,10 @@ type TicketSeedHandler struct {
 
 func (sh *TicketSeedHandler) SeedTickets(subtraction int64, lastRandId string) error {
 	return sh.ticketService.SeedTickets(subtraction, lastRandId)
+}
+
+func (sh *TicketSeedHandler) SeedTicketBySecurityRisk(subtraction int64, lastRandId string) error {
+	return sh.ticketService.SeedTicketsBySecurityRisk(subtraction, lastRandId)
 }
 
 func (sh *TicketSeedHandler) SeedByAccount(accountUUID string) error {

@@ -143,6 +143,30 @@ func (s *TicketService) GetTicketsByReporter(reporterUUID string) ([]*model.Tick
 	return tickets, false, nil
 }
 
+func (s *TicketService) GetTicketsBySecurityRisk(lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
+	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimelineBySecurityRisk(lastRandId)
+	if errFetch != nil {
+		requiresSeed := false
+		if errors.Is(errFetch, redifu.ResetPagination) {
+			requiresSeed = true
+		}
+		return nil, validLastRandId, position, requiresSeed, errFetch
+	}
+
+	totalReceivedItems := int64(len(tickets))
+	if totalReceivedItems < definition.ItemPerPage {
+		seedRequired, errCheck := s.ticketFetcher.IsTimelineBySecurityRiskSeedingRequired(totalReceivedItems)
+		if errCheck != nil {
+			return nil, validLastRandId, position, false, errCheck
+		}
+		if seedRequired {
+			return tickets, validLastRandId, position, true, nil
+		}
+	}
+
+	return tickets, validLastRandId, position, false, nil
+}
+
 func (s *TicketService) SeedTicket(randId string) error {
 	errSeedTicket := s.ticketRepository.SeedTicket(randId)
 	if errSeedTicket != nil {
@@ -169,6 +193,10 @@ func (s *TicketService) SeedTickets(subtraction int64, lastRandId string) error 
 
 func (s *TicketService) SeedTicketsByAccount(reporterUUID string) error {
 	return s.ticketRepository.SeedByAccount(reporterUUID)
+}
+
+func (s *TicketService) SeedTicketsBySecurityRisk(subtraction int64, lastRandId string) error {
+	return s.ticketRepository.SeedTicketsBySecurityRisk(subtraction, lastRandId)
 }
 
 func NewTicketService() *TicketService {

@@ -1,0 +1,305 @@
+{
+	"info": {
+		"_postman_id": "baa0ec15-9396-4b6c-905c-9a590ac13ca0",
+		"name": "Redifu API Collection",
+		"description": "Complete API collection for Redifu Example project - ticket and account management system",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "47370882",
+		"_collection_link": "https://nino-a47d2847-3404565.postman.co/workspace/redifu-Example~18e3a9ea-ac56-477e-be8d-c8998af865f7/collection/47370882-baa0ec15-9396-4b6c-905c-9a590ac13ca0?action=share&source=collection_link&creator=47370882"
+	},
+	"item": [
+		{
+			"name": "Account Operations",
+			"item": [
+				{
+					"name": "Create Account",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Stefan Olgrus\",\n  \"email\": \"stefolg@lockheed.com\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/account",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"account"
+							]
+						},
+						"description": "Create a new user account with name and email"
+					},
+					"response": []
+				}
+			],
+			"description": "Account management endpoints"
+		},
+		{
+			"name": "Ticket Operations",
+			"item": [
+				{
+					"name": "Create Ticket",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"description\": \"Critical bug found in v2.4.0 release, rollback needed\",\n  \"reporter_uuid\": \"{{account_uuid}}\",\n  \"security_risk\": 97\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/ticket",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"ticket"
+							]
+						},
+						"description": "Create a new support ticket with description and reporter UUID"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Ticket Description",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ticket_uuid\": \"{{ticket_uuid}}\",\n  \"description\": \"Updated description - Login issue resolved by clearing cache\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/ticket",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"ticket"
+							]
+						},
+						"description": "Update the description of an existing ticket"
+					},
+					"response": []
+				},
+				{
+					"name": "Resolve Ticket",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ticket_uuid\": \"{{ticket_uuid}}\",\n  \"description\": \"Ticket resolved\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/ticket/resolve",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"ticket",
+								"resolve"
+							]
+						},
+						"description": "Mark a ticket as resolved"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Ticket",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/ticket/{{ticket_uuid}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"ticket",
+								"{{ticket_uuid}}"
+							]
+						},
+						"description": "Delete a ticket by UUID"
+					},
+					"response": []
+				}
+			],
+			"description": "Ticket management endpoints (CUD operations)"
+		},
+		{
+			"name": "Ticket Retrieval",
+			"item": [
+				{
+					"name": "Get Tickets Timeline",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/ticket",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"ticket"
+							],
+							"query": [
+								{
+									"key": "lastRandId",
+									"value": "{{last_rand_id}}",
+									"description": "Optional: Last random ID for pagination",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Get tickets in timeline order with optional pagination"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Tickets by Reporter",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/ticket/sorted/{{reporter_uuid}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"ticket",
+								"sorted",
+								"{{reporter_uuid}}"
+							]
+						},
+						"description": "Get all tickets created by a specific reporter"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Single Ticket",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/ticket/{{ticket_rand_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"ticket",
+								"{{ticket_rand_id}}"
+							]
+						},
+						"description": "Get a specific ticket by its random ID, returns both ticket and account information"
+					},
+					"response": []
+				}
+			],
+			"description": "Ticket retrieval endpoints (Read operations)"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8080",
+			"type": "string",
+			"description": "Base URL for the API server"
+		},
+		{
+			"key": "account_uuid",
+			"value": "",
+			"type": "string",
+			"description": "Account UUID for testing (set after creating an account)"
+		},
+		{
+			"key": "ticket_uuid",
+			"value": "",
+			"type": "string",
+			"description": "Ticket UUID for testing (set after creating a ticket)"
+		},
+		{
+			"key": "ticket_rand_id",
+			"value": "",
+			"type": "string",
+			"description": "Ticket random ID for testing (set after creating a ticket)"
+		},
+		{
+			"key": "reporter_uuid",
+			"value": "",
+			"type": "string",
+			"description": "Reporter UUID for filtering tickets"
+		},
+		{
+			"key": "last_rand_id",
+			"value": "",
+			"type": "string",
+			"description": "Last random ID for pagination"
+		}
+	]
+}

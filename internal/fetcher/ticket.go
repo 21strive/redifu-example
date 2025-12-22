@@ -8,17 +8,17 @@ import (
 )
 
 type TicketFetcher struct {
-	base               *redifu.Base[*model.Ticket]
-	timeline           *redifu.Timeline[*model.Ticket]
-	timelineByReporter *redifu.Timeline[*model.Ticket]
-	sorted             *redifu.Sorted[*model.Ticket]
-	sortedByReporter   *redifu.Sorted[*model.Ticket]
+	base                   *redifu.Base[*model.Ticket]
+	timeline               *redifu.Timeline[*model.Ticket]
+	timelineBySecurityRisk *redifu.Timeline[*model.Ticket]
+	sortedByAccount        *redifu.Sorted[*model.Ticket]
 }
 
-func (t *TicketFetcher) Init(base *redifu.Base[*model.Ticket], timeline *redifu.Timeline[*model.Ticket], sortedByAccount *redifu.Sorted[*model.Ticket]) {
+func (t *TicketFetcher) Init(base *redifu.Base[*model.Ticket], timeline *redifu.Timeline[*model.Ticket], timelineBySecurityRisk *redifu.Timeline[*model.Ticket], sortedByAccount *redifu.Sorted[*model.Ticket]) {
 	t.base = base
 	t.timeline = timeline
-	t.sorted = sortedByAccount
+	t.timelineBySecurityRisk = timelineBySecurityRisk
+	t.sortedByAccount = sortedByAccount
 }
 
 func (t *TicketFetcher) Fetch(randid string) (*model.Ticket, error) {
@@ -42,12 +42,20 @@ func (t *TicketFetcher) IsTimelineSeedingRequired(totalReceivedItem int64) (bool
 	return t.timeline.RequiresSeeding(nil, totalReceivedItem)
 }
 
+func (t *TicketFetcher) FetchTimelineBySecurityRisk(lastRandId []string) ([]*model.Ticket, string, string, error) {
+	return t.timelineBySecurityRisk.Fetch(nil, lastRandId, nil, nil)
+}
+
+func (t *TicketFetcher) IsTimelineBySecurityRiskSeedingRequired(totalReceivedItem int64) (bool, error) {
+	return t.timelineBySecurityRisk.RequiresSeeding(nil, totalReceivedItem)
+}
+
 func (t *TicketFetcher) FetchSortedByReporter(reporterUUID string) ([]*model.Ticket, error) {
-	return t.sorted.Fetch([]string{reporterUUID}, redifu.Descending, nil, nil)
+	return t.sortedByAccount.Fetch([]string{reporterUUID}, redifu.Descending, nil, nil)
 }
 
 func (t *TicketFetcher) IsSortedByReporterSeedingRequired(reporterUUID string) (bool, error) {
-	return t.sorted.RequiresSeeding([]string{reporterUUID})
+	return t.sortedByAccount.RequiresSeeding([]string{reporterUUID})
 }
 
 func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
@@ -58,10 +66,14 @@ func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
 	timeline := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
 	timeline.AddRelation("account", accountRelation)
 
+	timelineBySecurityRisk := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	timelineBySecurityRisk.AddRelation("account", accountRelation)
+	timelineBySecurityRisk.SetSortingReference("SecurityRisk")
+
 	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
 	sortedByAccount.AddRelation("account", accountRelation)
 
 	ticketFetcher := &TicketFetcher{}
-	ticketFetcher.Init(base, timeline, sortedByAccount)
+	ticketFetcher.Init(base, timeline, timelineBySecurityRisk, sortedByAccount)
 	return ticketFetcher
 }

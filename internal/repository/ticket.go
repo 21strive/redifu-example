@@ -207,7 +207,6 @@ func (t *TicketRepository) SeedTicket(randId string) error {
 }
 
 func (t *TicketRepository) SeedTickets(subtraction int64, lastRandId string) error {
-
 	rowQuery := `
 		  SELECT * FROM ticket
 		  WHERE randid = $1
@@ -241,6 +240,40 @@ func (t *TicketRepository) SeedTickets(subtraction int64, lastRandId string) err
 	)
 }
 
+func (t *TicketRepository) SeedTicketsBySecurityRisk(subtraction int64, lastRandId string) error {
+	rowQuery := `
+		  SELECT * FROM ticket
+		  WHERE randid = $1
+		`
+
+	firstPageQuery := `
+		  SELECT t.*, a.* 
+		  FROM ticket t
+		  LEFT JOIN account a ON t.account_uuid = a.uuid
+		  ORDER BY t.security_risk DESC
+		`
+
+	nextPageQuery := `
+		  SELECT t.*, a.* 
+		  FROM ticket t
+		  LEFT JOIN account a ON t.account_uuid = a.uuid
+		  WHERE t.security_risk < $1 
+		  ORDER BY t.security_risk DESC
+		`
+
+	return t.timelineBySecurityRiskSeeder.SeedPartialWithRelation(
+		rowQuery,
+		firstPageQuery,
+		nextPageQuery,
+		rowScanner,
+		ticketScanner,
+		nil,
+		subtraction,
+		lastRandId,
+		nil,
+	)
+}
+
 func (t *TicketRepository) SeedByAccount(reporterUUID string) error {
 	query := "SELECT * FROM ticket WHERE account_uuid = $1"
 	return t.sortedByReporterSeeder.SeedWithRelation(query, ticketScanner, []interface{}{reporterUUID}, []string{reporterUUID})
@@ -259,6 +292,7 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 	timelineBySecurityRisk.AddRelation("account", accountRelation)
 	timelineBySecurityRisk.SetSortingReference("SecurityRisk")
 	timelineBySecurityRiskSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timelineBySecurityRisk)
+	timelineBySecurityRiskSeeder.SetSortingReference("SecurityRisk")
 
 	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
 	sortedByAccount.AddRelation("account", accountRelation)
