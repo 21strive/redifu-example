@@ -12,16 +12,15 @@ import (
 )
 
 type TicketService struct {
-	ticketRepository  *repository.TicketRepository
-	accountRepository *repository.AccountRepository
-	ticketFetcher     *fetcher.TicketFetcher
-	accountFetcher    *fetcher.AccountFetcher
+	ticketRepository *repository.TicketRepository
+	ticketFetcher    *fetcher.TicketFetcher
+	accountService   *AccountService
 }
 
-func (s *TicketService) InitRepository(db *sql.DB, redisClient redis.UniversalClient, accountRepository *repository.AccountRepository) {
+func (s *TicketService) InitRepository(db *sql.DB, redisClient redis.UniversalClient, accountService *AccountService) {
 	ticketRepository := repository.NewTicketRepository(db, redisClient)
 	s.ticketRepository = ticketRepository
-	s.accountRepository = accountRepository
+	s.accountService = accountService
 }
 
 func (s *TicketService) InitFetcher(redisClient redis.UniversalClient) {
@@ -29,10 +28,10 @@ func (s *TicketService) InitFetcher(redisClient redis.UniversalClient) {
 	s.ticketFetcher = ticketFetcher
 }
 
-func (s *TicketService) Create(description string, reporterUUID string) error {
+func (s *TicketService) Create(description string, accountUUID string) error {
 	ticket := model.NewTicket()
 	ticket.SetDescription(description)
-	ticket.SetReporterUUID(reporterUUID)
+	ticket.SetAccountUUID(accountUUID)
 
 	return s.ticketRepository.Create(ticket)
 }
@@ -89,7 +88,7 @@ func (s *TicketService) GetTicket(randid string) (*model.Ticket, *model.Account,
 		return nil, nil, false, errFetch
 	}
 
-	accountFromCache, err := s.accountFetcher.FetchByUUID(ticket.AccountUUID)
+	accountFromCache, err := s.accountService.GetAccountByUUID(ticket.AccountUUID)
 	if err != nil {
 		if err == definition.NotFound {
 			return ticket, nil, true, nil
@@ -154,7 +153,7 @@ func (s *TicketService) SeedTicket(randId string) error {
 		return errFetch
 	}
 
-	errSeed := s.accountRepository.SeedByUUID(ticketFromCache.AccountUUID)
+	errSeed := s.accountService.SeedAccountByUUID(ticketFromCache.AccountUUID)
 	// allow system to seed target ticket although the reporter account is deleted/not exists
 	if errSeed != nil && errSeed != definition.NotFound {
 		return errSeed

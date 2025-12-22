@@ -20,6 +20,27 @@ func (ar *AccountRepository) Init(db *sql.DB, base *redifu.Base[*model.Account])
 	ar.db = db
 }
 
+func (ar *AccountRepository) Create(account *model.Account) error {
+	query := "INSERT INTO account (uuid, randid, created_at, updated_at, name, email) VALUES ($1, $2, $3, $4, $5, $6)"
+	stmt, err := ar.db.Prepare(query)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, errCreate := stmt.Exec(account.GetUUID(), account.GetRandId(), account.GetCreatedAt(), account.GetUpdatedAt(), account.Name, account.Email)
+	if errCreate != nil {
+		return errCreate
+	}
+
+	errSet := ar.base.Upsert(account)
+	if errSet != nil {
+		return errSet
+	}
+
+	return nil
+}
+
 func (ar *AccountRepository) FindByUUID(accountUUID string) (*model.Account, error) {
 	query := "SELECT uuid, randid, name, email FROM account WHERE uuid = $1"
 	row := ar.db.QueryRow(query, accountUUID)

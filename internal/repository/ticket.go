@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"github.com/21strive/redifu"
 	"github.com/redis/go-redis/v9"
-	"log"
 	"redifu-example/definition"
 	"redifu-example/internal/model"
 )
@@ -26,22 +25,6 @@ func (t *TicketRepository) Init(
 	sortedByReporter *redifu.Sorted[*model.Ticket],
 	sortedByReporterSeeder *redifu.SortedSeeder[*model.Ticket],
 ) {
-	createTable := `
-		CREATE TABLE IF NOT EXISTS ticket ( 
-		    uuid varchar(36), 
-		    randid varchar(16), 
-		    created_at timestamp, 
-		    updated_at timestamp, 
-		    reporter_uuid varchar(36), 
-		    description text, 
-		    resolved bool 
-	  	);
-	`
-	_, errCreateTable := db.Exec(createTable)
-	if errCreateTable != nil {
-		log.Fatal(errCreateTable)
-	}
-
 	t.db = db
 	t.base = base
 	t.timeline = timeline
@@ -51,14 +34,14 @@ func (t *TicketRepository) Init(
 }
 
 func (t *TicketRepository) Create(ticket *model.Ticket) error {
-	query := "INSERT INTO ticket (uuid, randid, created_at, updated_at, description, resolved, account_uuid) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+	query := "INSERT INTO ticket (uuid, randid, created_at, updated_at, account_uuid, description, resolved, security_risk) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
 	stmt, err := t.db.Prepare(query)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
-	_, errCreate := stmt.Exec(ticket.GetUUID(), ticket.GetRandId(), ticket.GetCreatedAt(), ticket.GetUpdatedAt(), ticket.Description, ticket.Resolved, ticket.AccountUUID)
+	_, errCreate := stmt.Exec(ticket.GetUUID(), ticket.GetRandId(), ticket.GetCreatedAt(), ticket.GetUpdatedAt(), ticket.AccountUUID, ticket.Description, ticket.Resolved, ticket.SecurityRisk)
 	if errCreate != nil {
 		return errCreate
 	}
@@ -70,14 +53,14 @@ func (t *TicketRepository) Create(ticket *model.Ticket) error {
 }
 
 func (t *TicketRepository) Update(ticket *model.Ticket) error {
-	query := "UPDATE ticket SET description = $1, updated_at = $2, resolved = $3 WHERE uuid = $4"
+	query := "UPDATE ticket SET description = $1, resolved = $2, security_risk = $3, updated_at = $4 WHERE uuid = $5"
 	stmt, err := t.db.Prepare(query)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
-	_, errUpdate := stmt.Exec(ticket.Description, ticket.GetUpdatedAt(), ticket.Resolved, ticket.GetUUID())
+	_, errUpdate := stmt.Exec(ticket.Description, ticket.Resolved, ticket.SecurityRisk, ticket.GetUpdatedAt(), ticket.GetUUID())
 	if errUpdate != nil {
 		return errUpdate
 	}
@@ -144,7 +127,7 @@ func (t *TicketRepository) FindByRandId(randid string) (*model.Ticket, error) {
 
 func rowScanner(row *sql.Row) (*model.Ticket, error) {
 	ticket := model.NewTicket()
-	errScan := row.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.Description, &ticket.Resolved, &ticket.AccountUUID)
+	errScan := row.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.AccountUUID, &ticket.Description, &ticket.Resolved, &ticket.SecurityRisk)
 	return ticket, errScan
 }
 
@@ -165,9 +148,10 @@ func ticketScanner(rows *sql.Rows, relation map[string]redifu.Relation) (*model.
 		&ticket.RandId,
 		&ticket.CreatedAt,
 		&ticket.UpdatedAt,
+		&ticket.AccountUUID,
 		&ticket.Description,
 		&ticket.Resolved,
-		&ticket.AccountUUID,
+		&ticket.SecurityRisk,
 		&accountUUID,
 		&accountRandId,
 		&accountCreatedAt,

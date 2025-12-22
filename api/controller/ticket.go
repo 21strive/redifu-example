@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"os"
 	"redifu-example/internal/logger"
-	"redifu-example/internal/service"
+	"redifu-example/pkg/service"
 	"strings"
 )
 
@@ -31,17 +31,15 @@ type UpdateAccountRequest struct {
 
 type TicketSeeder interface {
 	SeedTimeline(int64, string) error
-	SeedTimelineByReporter(int64, string, string) error
-	SeedSorted() error
 	SeedSortedByReporter(string) error
 	SeedByRandId(string) error
 }
 
-type CUDController struct {
+type TicketCUDController struct {
 	ticketService *service.TicketService
 }
 
-func (cud *CUDController) CreateTicket(c *fiber.Ctx) error {
+func (cud *TicketCUDController) CreateTicket(c *fiber.Ctx) error {
 	var reqBody CreateTicketRequest
 	if err := c.BodyParser(&reqBody); err != nil {
 		return logger.Error(c, fiber.StatusBadRequest, err, "T100", "CreateTicket.BodyParser")
@@ -55,7 +53,7 @@ func (cud *CUDController) CreateTicket(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusCreated)
 }
 
-func (cud *CUDController) PatchTicket(c *fiber.Ctx) error {
+func (cud *TicketCUDController) PatchTicket(c *fiber.Ctx) error {
 	var reqBody UpdateTicketDescriptionRequest
 	if err := c.BodyParser(&reqBody); err != nil {
 		return logger.Error(c, fiber.StatusBadRequest, err, "T100", "UpdateTicketDescription.BodyParser")
@@ -68,7 +66,7 @@ func (cud *CUDController) PatchTicket(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
-func (cud *CUDController) ResolveTicket(c *fiber.Ctx) error {
+func (cud *TicketCUDController) ResolveTicket(c *fiber.Ctx) error {
 	var reqBody UpdateTicketDescriptionRequest
 	if err := c.BodyParser(&reqBody); err != nil {
 		return logger.Error(c, fiber.StatusBadRequest, err, "T100", "UpdateTicketDescription.BodyParser")
@@ -82,7 +80,7 @@ func (cud *CUDController) ResolveTicket(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
-func (cud *CUDController) DeleteTicket(c *fiber.Ctx) error {
+func (cud *TicketCUDController) DeleteTicket(c *fiber.Ctx) error {
 	ticketUUID := c.Params("ticketUUID")
 	if ticketUUID == "" {
 		return logger.Error(c, fiber.StatusBadRequest, fmt.Errorf("ticketUUID is empty"), "T100", "DeleteTicket.Params")
@@ -95,52 +93,56 @@ func (cud *CUDController) DeleteTicket(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
-func NewCUDController(db *sql.DB, redisClient redis.UniversalClient) *CUDController {
+func NewTicketCUDController(db *sql.DB, redisClient redis.UniversalClient) *TicketCUDController {
 	ticketService := service.NewTicketService()
-	ticketService.InitRepository(db, redisClient)
-	return &CUDController{ticketService: ticketService}
+	accountService := service.NewAccountService()
+
+	ticketService.InitRepository(db, redisClient, accountService)
+	accountService.InitRepository(db, redisClient)
+	return &TicketCUDController{ticketService: ticketService}
 }
 
-type FetchController struct {
+type TicketFetchController struct {
 	ticketService *service.TicketService
 	seedHandler   TicketSeeder
 }
 
-func (fh *FetchController) GetTicket(c *fiber.Ctx) error {
-	func(c *fiber.Ctx) error {
-		ticketRandId := c.Params("ticketRandId")
-		if ticketRandId == "" {
-			return ConstructErrorResponse(c, "ticket", fiber.StatusBadRequest, fmt.Errorf("ticketRandId is empty"), "T100", "GetTicket.Params")
-		}
+func (fh *TicketFetchController) GetTicket(c *fiber.Ctx) error {
+	ticketRandId := c.Params("randid")
+	if ticketRandId == "" {
+		return logger.Error(c, fiber.StatusBadRequest, fmt.Errorf("ticketRandId is empty"), "T100", "GetTicket.Params")
+	}
 
-		ticket, isBlank, errFetch := service.Fetch(ticketRandId, ticketFetcher)
-		if errFetch != nil {
-			return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
-		}
-		if ticket == nil {
-			if isBlank {
-				return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
-			} else {
-				errSeedTicket := ticketRepository.SeedByRandId(ticketRandId)
-				if errSeedTicket != nil {
-					return ConstructErrorResponse(c, "ticket", fiber.StatusInternalServerError, errSeedTicket, "T500", "GetTicket.Seed")
-				}
+	ticket, account, isBlank, errFetch := fh.ticketService.GetTicket(ticketRandId)
+	if errFetch != nil {
+		return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicket.Fetch")
+	}
+	if ticket == nil {
+		if isBlank {
+			return logger.Error(c, fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
+		} else {
+			errSeedTicket := fh.seedHandler.SeedByRandId(ticketRandId)
+			if errSeedTicket != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errSeedTicket, "T500", "GetTicket.Seed")
+			}
 
-				ticket, isBlank, errFetch = service.Fetch(ticketRandId, ticketFetcher)
-				if errFetch != nil {
-					return ConstructErrorResponse(c, "ticket", errFetch.Status, errFetch.Error, errFetch.Code, "GetTicket.Fetch")
-				}
-				if ticket == nil || isBlank {
-					return ConstructErrorResponse(c, "ticket", fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
-				}
+			ticket, account, isBlank, errFetch = fh.ticketService.GetTicket(ticketRandId)
+			if errFetch != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T550", "GetTicket.Fetch")
+			}
+			if ticket == nil || isBlank {
+				return logger.Error(c, fiber.StatusNotFound, fmt.Errorf("ticket not found"), "T404", "GetTicket.NotFound")
 			}
 		}
-
-		return c.JSON(ticket)
 	}
+
+	return c.JSON(map[string]interface{}{
+		"ticket":  ticket,
+		"account": account,
+	})
 }
 
-func (fh *FetchController) GetTickets(c *fiber.Ctx) error {
+func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
 	var lastRandIdArray []string
 	lastRandId := c.Query("lastRandId")
 	if lastRandId != "" {
@@ -175,7 +177,7 @@ func (fh *FetchController) GetTickets(c *fiber.Ctx) error {
 	})
 }
 
-func (fh *FetchController) GetTicketsByReporter(c *fiber.Ctx) error {
+func (fh *TicketFetchController) GetTicketsByReporter(c *fiber.Ctx) error {
 	accountUUID := c.Params("accountUUID")
 	ticket, requireSeeding, errFetch := fh.ticketService.GetTicketsByReporter(accountUUID)
 	if errFetch != nil {
@@ -196,7 +198,7 @@ func (fh *FetchController) GetTicketsByReporter(c *fiber.Ctx) error {
 	return c.JSON(ticket)
 }
 
-func NewFetchController(redisClient redis.UniversalClient) *FetchController {
+func NewTicketFetchController(redisClient redis.UniversalClient) *TicketFetchController {
 	ticketService := service.NewTicketService()
 	ticketService.InitFetcher(redisClient)
 
@@ -207,37 +209,29 @@ func NewFetchController(redisClient redis.UniversalClient) *FetchController {
 		// seedHandler = GRPCHandler
 	}
 
-	return &FetchController{
+	return &TicketFetchController{
 		ticketService: ticketService,
 		seedHandler:   seedHandler,
 	}
 }
 
-type SelfSeedHandler struct {
+type SelfTicketSeedHandler struct {
 }
 
-func (sh *SelfSeedHandler) SeedTimeline(int64, string) error {
+func (sh *SelfTicketSeedHandler) SeedTimeline(int64, string) error {
 	return nil
 }
 
-func (sh *SelfSeedHandler) SeedTimelineByReporter(int64, string, string) error {
+func (sh *SelfTicketSeedHandler) SeedSortedByReporter(string) error {
 	return nil
 }
 
-func (sh *SelfSeedHandler) SeedSorted() error {
+func (sh *SelfTicketSeedHandler) SeedByRandId(string) error {
 	return nil
 }
 
-func (sh *SelfSeedHandler) SeedSortedByReporter(string) error {
-	return nil
-}
-
-func (sh *SelfSeedHandler) SeedByRandId(string) error {
-	return nil
-}
-
-func NewSelfSeedHandler() *SelfSeedHandler {
-	return &SelfSeedHandler{}
+func NewSelfSeedHandler() *SelfTicketSeedHandler {
+	return &SelfTicketSeedHandler{}
 }
 
 // Implement type GRPCSeedHandler here

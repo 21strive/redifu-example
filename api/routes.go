@@ -8,15 +8,18 @@ import (
 )
 
 func SetterEndpoints(app *fiber.App, db *sql.DB, redisClient redis.UniversalClient) {
-	cudController := controller.NewCUDController(db, redisClient)
+	cudController := controller.NewTicketCUDController(db, redisClient)
 	app.Post("/ticket", cudController.CreateTicket)
 	app.Patch("/ticket", cudController.PatchTicket)
 	app.Post("/ticket/resolve", cudController.ResolveTicket)
 	app.Delete("/ticket/:ticketUUID", cudController.DeleteTicket)
+
+	accountController := controller.NewAccountCUDController(db, redisClient)
+	app.Post("/account", accountController.CreateAccount)
 }
 
 func GetterEndpoints(app *fiber.App, redisClient redis.UniversalClient) {
-	fetchController := controller.NewFetchController(redisClient)
+	fetchController := controller.NewTicketFetchController(redisClient)
 	app.Get("/ticket/timeline", fetchController.GetTickets)
 	app.Get("/ticket/sorted/:reporterUUID", fetchController.GetTicketsByReporter)
 	// Get individual ticket

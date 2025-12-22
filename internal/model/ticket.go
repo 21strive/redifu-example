@@ -15,8 +15,8 @@ func (t *Ticket) SetDescription(description string) {
 	t.Description = description
 }
 
-func (t *Ticket) SetReporterUUID(reporterUUID string) {
-	t.AccountUUID = reporterUUID
+func (t *Ticket) SetAccountUUID(accountUUID string) {
+	t.AccountUUID = accountUUID
 }
 
 func (t *Ticket) SetResolved() {
