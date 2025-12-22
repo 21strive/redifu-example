@@ -17,6 +17,8 @@ type TicketRepository struct {
 	timelineBySecurityRiskSeeder *redifu.TimelineSeeder[*model.Ticket]
 	sortedByReporter             *redifu.Sorted[*model.Ticket]
 	sortedByReporterSeeder       *redifu.SortedSeeder[*model.Ticket]
+	page                         *redifu.Page[*model.Ticket]
+	pageSeeder                   *redifu.PageSeeder[*model.Ticket]
 }
 
 func (t *TicketRepository) Init(
@@ -28,6 +30,8 @@ func (t *TicketRepository) Init(
 	timelineBySecurityRiskSeeder *redifu.TimelineSeeder[*model.Ticket],
 	sortedByReporter *redifu.Sorted[*model.Ticket],
 	sortedByReporterSeeder *redifu.SortedSeeder[*model.Ticket],
+	page *redifu.Page[*model.Ticket],
+	pageSeeder *redifu.PageSeeder[*model.Ticket],
 ) {
 	t.db = db
 	t.base = base
@@ -37,6 +41,8 @@ func (t *TicketRepository) Init(
 	t.timelineBySecurityRiskSeeder = timelineBySecurityRiskSeeder
 	t.sortedByReporter = sortedByReporter
 	t.sortedByReporterSeeder = sortedByReporterSeeder
+	t.page = page
+	t.pageSeeder = pageSeeder
 }
 
 func (t *TicketRepository) Create(ticket *model.Ticket) error {
@@ -279,6 +285,12 @@ func (t *TicketRepository) SeedByAccount(reporterUUID string) error {
 	return t.sortedByReporterSeeder.SeedWithRelation(query, ticketScanner, []interface{}{reporterUUID}, []string{reporterUUID})
 }
 
+func (t *TicketRepository) SeedPage(page int64) {
+	query := "SELECT * FROM ticket ORDER BY created_at DESC"
+
+	t.pageSeeder.SeedWithRelation(query, page, definition.ItemPerPage, ticketScanner, nil, nil)
+}
+
 func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketRepository {
 	base := redifu.NewBase[*model.Ticket](redisClient, "ticket:%s", definition.BaseTTL)
 	baseAccount := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
@@ -298,6 +310,10 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 	sortedByAccount.AddRelation("account", accountRelation)
 	sortedByReporterSeeder := redifu.NewSortedSeeder[*model.Ticket](redisClient, db, base, sortedByAccount)
 
+	page := redifu.NewPage[*model.Ticket](redisClient, base, "ticket-page", definition.SortedSetTTL)
+	page.AddRelation("account", accountRelation)
+	pageSeeder := redifu.NewPageSeeder[*model.Ticket](redisClient, db, base, page)
+
 	ticketRepository := &TicketRepository{}
 	ticketRepository.Init(
 		db,
@@ -307,7 +323,9 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 		timelineBySecurityRisk,
 		timelineBySecurityRiskSeeder,
 		sortedByAccount,
-		sortedByReporterSeeder)
+		sortedByReporterSeeder,
+		page,
+		pageSeeder)
 
 	return ticketRepository
 }
