@@ -12,13 +12,20 @@ type TicketFetcher struct {
 	timeline               *redifu.Timeline[*model.Ticket]
 	timelineBySecurityRisk *redifu.Timeline[*model.Ticket]
 	sortedByAccount        *redifu.Sorted[*model.Ticket]
+	page                   *redifu.Page[*model.Ticket]
 }
 
-func (t *TicketFetcher) Init(base *redifu.Base[*model.Ticket], timeline *redifu.Timeline[*model.Ticket], timelineBySecurityRisk *redifu.Timeline[*model.Ticket], sortedByAccount *redifu.Sorted[*model.Ticket]) {
+func (t *TicketFetcher) Init(
+	base *redifu.Base[*model.Ticket],
+	timeline *redifu.Timeline[*model.Ticket],
+	timelineBySecurityRisk *redifu.Timeline[*model.Ticket],
+	sortedByAccount *redifu.Sorted[*model.Ticket],
+	page *redifu.Page[*model.Ticket]) {
 	t.base = base
 	t.timeline = timeline
 	t.timelineBySecurityRisk = timelineBySecurityRisk
 	t.sortedByAccount = sortedByAccount
+	t.page = page
 }
 
 func (t *TicketFetcher) Fetch(randid string) (*model.Ticket, error) {
@@ -58,6 +65,14 @@ func (t *TicketFetcher) IsSortedByReporterSeedingRequired(reporterUUID string) (
 	return t.sortedByAccount.RequiresSeeding([]string{reporterUUID})
 }
 
+func (t *TicketFetcher) FetchByPage(page int64) ([]*model.Ticket, error) {
+	return t.page.Fetch(nil, page, nil, nil)
+}
+
+func (t *TicketFetcher) IsTicketPageSeedRequired(page int64) (bool, error) {
+	return t.page.RequiresSeeding(nil, page)
+}
+
 func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
 	base := redifu.NewBase[*model.Ticket](redisClient, "ticket:%s", definition.BaseTTL)
 	baseAccount := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
@@ -73,7 +88,10 @@ func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
 	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
 	sortedByAccount.AddRelation("account", accountRelation)
 
+	page := redifu.NewPage[*model.Ticket](redisClient, base, "ticket-page", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	page.AddRelation("account", accountRelation)
+
 	ticketFetcher := &TicketFetcher{}
-	ticketFetcher.Init(base, timeline, timelineBySecurityRisk, sortedByAccount)
+	ticketFetcher.Init(base, timeline, timelineBySecurityRisk, sortedByAccount, page)
 	return ticketFetcher
 }

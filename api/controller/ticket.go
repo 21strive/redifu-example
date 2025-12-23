@@ -9,6 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"redifu-example/internal/logger"
 	"redifu-example/pkg/service"
+	"strconv"
 	"strings"
 )
 
@@ -138,6 +139,7 @@ func (fh *TicketFetchController) GetTicket(c *fiber.Ctx) error {
 
 func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
 	sortBy := c.Query("sort")
+	page := c.Query("page")
 
 	if sortBy == "security" {
 		var lastRandIdArray []string
@@ -154,7 +156,6 @@ func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
 				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsBySecurityRisk.Fetch")
 			}
 		}
-
 		if isSeedingRequired {
 			errSeedTicketTimeline := fh.seedHandler.SeedTicketBySecurityRisk(int64(len(tickets)), validLastRandId)
 			if errSeedTicketTimeline != nil {
@@ -173,38 +174,63 @@ func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
 			"tickets":  tickets,
 		})
 	} else {
-		var lastRandIdArray []string
-		lastRandId := c.Query("lastRandId")
-		if lastRandId != "" {
-			lastRandIdArray = strings.Split(lastRandId, ",")
-		}
-
-		ticket, validLastRandId, position, isSeedingRequired, errFetch := fh.ticketService.GetTickets(lastRandIdArray)
-		if errFetch != nil {
-			if errors.Is(errFetch, redifu.ResetPagination) {
-				lastRandIdArray = []string{}
-			} else {
-				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTickets.Fetch")
+		if page != "" {
+			pageAsInt, errParse := strconv.ParseInt(page, 10, 64)
+			if errParse != nil {
+				return logger.Error(c, fiber.StatusBadRequest, errors.New("incorrect page number value-type"), "T100", "GetTicketsByPage.Parse")
 			}
-		}
-
-		if isSeedingRequired {
-			errSeedTicketTimeline := fh.seedHandler.SeedTickets(int64(len(ticket)), validLastRandId)
-			if errSeedTicketTimeline != nil {
-				return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketTimeline, "T500", "GetTickets.Seed")
-			}
-
-			ticket, validLastRandId, position, isSeedingRequired, errFetch = fh.ticketService.GetTickets(lastRandIdArray)
+			tickets, seedRequired, errFetch := fh.ticketService.GetTicketsByPage(pageAsInt)
 			if errFetch != nil {
-				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketTimelineAfterSeed.Fetch")
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsByPage.Fetch")
 			}
-		}
+			if seedRequired {
+				errSeedTicketByPage := fh.seedHandler.SeedTicketsByPage(pageAsInt)
+				if errSeedTicketByPage != nil {
+					return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketByPage, "T500", "GetTicketsByPage.Seed")
+				}
 
-		c.Set("Content-Type", "application/json")
-		return c.JSON(map[string]interface{}{
-			"position": position,
-			"tickets":  ticket,
-		})
+				tickets, seedRequired, errFetch = fh.ticketService.GetTicketsByPage(pageAsInt)
+				if errFetch != nil {
+					return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsByPage.Fetch")
+				}
+			}
+
+			c.Set("Content-Type", "application/json")
+			return c.JSON(tickets)
+		} else {
+			var lastRandIdArray []string
+			lastRandId := c.Query("lastRandId")
+			if lastRandId != "" {
+				lastRandIdArray = strings.Split(lastRandId, ",")
+			}
+
+			ticket, validLastRandId, position, isSeedingRequired, errFetch := fh.ticketService.GetTickets(lastRandIdArray)
+			if errFetch != nil {
+				if errors.Is(errFetch, redifu.ResetPagination) {
+					lastRandIdArray = []string{}
+				} else {
+					return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTickets.Fetch")
+				}
+			}
+
+			if isSeedingRequired {
+				errSeedTicketTimeline := fh.seedHandler.SeedTickets(int64(len(ticket)), validLastRandId)
+				if errSeedTicketTimeline != nil {
+					return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketTimeline, "T500", "GetTickets.Seed")
+				}
+
+				ticket, validLastRandId, position, isSeedingRequired, errFetch = fh.ticketService.GetTickets(lastRandIdArray)
+				if errFetch != nil {
+					return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketTimelineAfterSeed.Fetch")
+				}
+			}
+
+			c.Set("Content-Type", "application/json")
+			return c.JSON(map[string]interface{}{
+				"position": position,
+				"tickets":  ticket,
+			})
+		}
 	}
 }
 
@@ -244,6 +270,7 @@ type TicketSeeder interface {
 	SeedTicketBySecurityRisk(int64, string) error
 	SeedByAccount(string) error
 	SeedTicket(string) error
+	SeedTicketsByPage(page int64) error
 }
 
 type TicketSeedHandler struct {
@@ -264,6 +291,10 @@ func (sh *TicketSeedHandler) SeedByAccount(accountUUID string) error {
 
 func (sh *TicketSeedHandler) SeedTicket(randId string) error {
 	return sh.ticketService.SeedTicket(randId)
+}
+
+func (sh *TicketSeedHandler) SeedTicketsByPage(page int64) error {
+	return sh.ticketService.SeedTicketsByPage(page)
 }
 
 func NewSelfSeedHandler(db *sql.DB, redisClient redis.UniversalClient) *TicketSeedHandler {

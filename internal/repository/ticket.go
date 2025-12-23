@@ -60,6 +60,8 @@ func (t *TicketRepository) Create(ticket *model.Ticket) error {
 
 	t.timeline.AddItem(ticket, nil)
 	t.sortedByReporter.AddItem(ticket, []string{ticket.AccountUUID})
+	t.base.Upsert(ticket)
+	t.timelineBySecurityRisk.AddItem(ticket, nil)
 
 	return nil
 }
@@ -285,10 +287,15 @@ func (t *TicketRepository) SeedByAccount(reporterUUID string) error {
 	return t.sortedByReporterSeeder.SeedWithRelation(query, ticketScanner, []interface{}{reporterUUID}, []string{reporterUUID})
 }
 
-func (t *TicketRepository) SeedPage(page int64) {
-	query := "SELECT * FROM ticket ORDER BY created_at DESC"
+func (t *TicketRepository) SeedPage(page int64) error {
+	query := `
+		  SELECT t.*, a.* 
+		  FROM ticket t
+		  LEFT JOIN account a ON t.account_uuid = a.uuid
+		  ORDER BY t.created_at DESC
+		`
 
-	t.pageSeeder.SeedWithRelation(query, page, definition.ItemPerPage, ticketScanner, nil, nil)
+	return t.pageSeeder.SeedWithRelation(query, page, ticketScanner, nil, nil)
 }
 
 func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketRepository {
@@ -296,21 +303,25 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 	baseAccount := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
 	accountRelation := redifu.NewRelation[*model.Account](baseAccount, "Account", "AccountRandId")
 
+	// Timeline - CreatedAt
 	timeline := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
 	timeline.AddRelation("account", accountRelation)
 	timelineSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timeline)
 
+	// Timeline - Custom Scoring
 	timelineBySecurityRisk := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
 	timelineBySecurityRisk.AddRelation("account", accountRelation)
 	timelineBySecurityRisk.SetSortingReference("SecurityRisk")
 	timelineBySecurityRiskSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timelineBySecurityRisk)
 	timelineBySecurityRiskSeeder.SetSortingReference("SecurityRisk")
 
+	// Sorted - CreatedAt
 	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
 	sortedByAccount.AddRelation("account", accountRelation)
 	sortedByReporterSeeder := redifu.NewSortedSeeder[*model.Ticket](redisClient, db, base, sortedByAccount)
 
-	page := redifu.NewPage[*model.Ticket](redisClient, base, "ticket-page", definition.SortedSetTTL)
+	// Page - CreatedAt
+	page := redifu.NewPage[*model.Ticket](redisClient, base, "ticket-page", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
 	page.AddRelation("account", accountRelation)
 	pageSeeder := redifu.NewPageSeeder[*model.Ticket](redisClient, db, base, page)
 
