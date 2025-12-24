@@ -13,6 +13,7 @@ type TicketFetcher struct {
 	timelineBySecurityRisk *redifu.Timeline[*model.Ticket]
 	sortedByAccount        *redifu.Sorted[*model.Ticket]
 	page                   *redifu.Page[*model.Ticket]
+	timeSeries             *redifu.TimeSeries[*model.Ticket]
 }
 
 func (t *TicketFetcher) Init(
@@ -20,12 +21,15 @@ func (t *TicketFetcher) Init(
 	timeline *redifu.Timeline[*model.Ticket],
 	timelineBySecurityRisk *redifu.Timeline[*model.Ticket],
 	sortedByAccount *redifu.Sorted[*model.Ticket],
-	page *redifu.Page[*model.Ticket]) {
+	page *redifu.Page[*model.Ticket],
+	timeSeries *redifu.TimeSeries[*model.Ticket],
+) {
 	t.base = base
 	t.timeline = timeline
 	t.timelineBySecurityRisk = timelineBySecurityRisk
 	t.sortedByAccount = sortedByAccount
 	t.page = page
+	t.timeSeries = timeSeries
 }
 
 func (t *TicketFetcher) Fetch(randid string) (*model.Ticket, error) {
@@ -91,7 +95,9 @@ func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
 	page := redifu.NewPage[*model.Ticket](redisClient, base, "ticket-page", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
 	page.AddRelation("account", accountRelation)
 
+	timeSeries := redifu.NewTimeSeries[*model.Ticket](redisClient, base, "ticket-time-series", definition.SortedSetTTL)
+
 	ticketFetcher := &TicketFetcher{}
-	ticketFetcher.Init(base, timeline, timelineBySecurityRisk, sortedByAccount, page)
+	ticketFetcher.Init(base, timeline, timelineBySecurityRisk, sortedByAccount, page, timeSeries)
 	return ticketFetcher
 }

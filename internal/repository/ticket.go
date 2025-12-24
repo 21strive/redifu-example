@@ -19,6 +19,8 @@ type TicketRepository struct {
 	sortedByReporterSeeder       *redifu.SortedSeeder[*model.Ticket]
 	page                         *redifu.Page[*model.Ticket]
 	pageSeeder                   *redifu.PageSeeder[*model.Ticket]
+	timeSeries                   *redifu.TimeSeries[*model.Ticket]
+	timeSeriesSeeder             *redifu.TimeSeriesSeeder[*model.Ticket]
 }
 
 func (t *TicketRepository) Init(
@@ -32,6 +34,8 @@ func (t *TicketRepository) Init(
 	sortedByReporterSeeder *redifu.SortedSeeder[*model.Ticket],
 	page *redifu.Page[*model.Ticket],
 	pageSeeder *redifu.PageSeeder[*model.Ticket],
+	timeSeries *redifu.TimeSeries[*model.Ticket],
+	timeSeriesSeeder *redifu.TimeSeriesSeeder[*model.Ticket],
 ) {
 	t.db = db
 	t.base = base
@@ -43,6 +47,8 @@ func (t *TicketRepository) Init(
 	t.sortedByReporterSeeder = sortedByReporterSeeder
 	t.page = page
 	t.pageSeeder = pageSeeder
+	t.timeSeries = timeSeries
+	t.timeSeriesSeeder = timeSeriesSeeder
 }
 
 func (t *TicketRepository) Create(ticket *model.Ticket) error {
@@ -239,12 +245,12 @@ func (t *TicketRepository) SeedTickets(subtraction int64, lastRandId string) err
 		rowQuery,
 		firstPageQuery,
 		nextPageQuery,
-		rowScanner,
-		ticketScanner,
 		nil,
 		subtraction,
 		lastRandId,
 		nil,
+		rowScanner,
+		ticketScanner,
 	)
 }
 
@@ -273,12 +279,12 @@ func (t *TicketRepository) SeedTicketsBySecurityRisk(subtraction int64, lastRand
 		rowQuery,
 		firstPageQuery,
 		nextPageQuery,
-		rowScanner,
-		ticketScanner,
 		nil,
 		subtraction,
 		lastRandId,
 		nil,
+		rowScanner,
+		ticketScanner,
 	)
 }
 
@@ -325,6 +331,10 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 	page.AddRelation("account", accountRelation)
 	pageSeeder := redifu.NewPageSeeder[*model.Ticket](redisClient, db, base, page)
 
+	// Time Series - strictly CreatedAt only
+	timeSeries := redifu.NewTimeSeries[*model.Ticket](redisClient, base, "ticket-time-series", definition.SortedSetTTL)
+	timeSeriesSeeder := redifu.NewTimeSeriesSeeder[*model.Ticket](redisClient, db, base, timeSeries)
+
 	ticketRepository := &TicketRepository{}
 	ticketRepository.Init(
 		db,
@@ -336,7 +346,9 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 		sortedByAccount,
 		sortedByReporterSeeder,
 		page,
-		pageSeeder)
+		pageSeeder,
+		timeSeries,
+		timeSeriesSeeder)
 
 	return ticketRepository
 }
