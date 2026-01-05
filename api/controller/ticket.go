@@ -11,6 +11,7 @@ import (
 	"redifu-example/pkg/service"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type CreateTicketRequest struct {
@@ -140,6 +141,8 @@ func (fh *TicketFetchController) GetTicket(c *fiber.Ctx) error {
 func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
 	sortBy := c.Query("sort")
 	page := c.Query("page")
+	lowerbound := c.Query("lowerbound")
+	upperbound := c.Query("upperbound")
 
 	if sortBy == "security" {
 		var lastRandIdArray []string
@@ -173,6 +176,32 @@ func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
 			"position": position,
 			"tickets":  tickets,
 		})
+	} else if lowerbound != "" && upperbound != "" {
+		lowerboundAsTime, errParse := time.Parse(time.RFC3339, lowerbound)
+		upperboundAsTime, errParse := time.Parse(time.RFC3339, upperbound)
+		if errParse != nil {
+			return logger.Error(c, fiber.StatusBadRequest, errors.New("incorrect lowerbound value-type"), "T100", "GetTicketsByDate.Parse")
+		}
+
+		tickets, seedRequired, errFetch := fh.ticketService.GetTicketsByDate(lowerboundAsTime, upperboundAsTime)
+		if errFetch != nil {
+			return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsByDate.Fetch")
+		}
+		if seedRequired {
+			errSeedTicketByDate := fh.seedHandler.SeedTicketsByDate(lowerboundAsTime, upperboundAsTime)
+			if errSeedTicketByDate != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketByDate, "T500", "GetTicketsByDate.Seed")
+			}
+
+			tickets, seedRequired, errFetch = fh.ticketService.GetTicketsByDate(lowerboundAsTime, upperboundAsTime)
+			if errFetch != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsByDateAfterSeed.Fetch")
+			}
+		}
+
+		c.Set("Content-Type", "application/json")
+		return c.JSON(tickets)
+
 	} else {
 		if page != "" {
 			pageAsInt, errParse := strconv.ParseInt(page, 10, 64)
@@ -271,6 +300,7 @@ type TicketSeeder interface {
 	SeedByAccount(string) error
 	SeedTicket(string) error
 	SeedTicketsByPage(page int64) error
+	SeedTicketsByDate(lowerbound time.Time, upperbound time.Time) error
 }
 
 type TicketSeedHandler struct {
@@ -295,6 +325,10 @@ func (sh *TicketSeedHandler) SeedTicket(randId string) error {
 
 func (sh *TicketSeedHandler) SeedTicketsByPage(page int64) error {
 	return sh.ticketService.SeedTicketsByPage(page)
+}
+
+func (sh *TicketSeedHandler) SeedTicketsByDate(lowerbound time.Time, upperbound time.Time) error {
+	return sh.ticketService.SeedTicketsByDate(lowerbound, upperbound)
 }
 
 func NewSelfSeedHandler(db *sql.DB, redisClient redis.UniversalClient) *TicketSeedHandler {

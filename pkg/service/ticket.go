@@ -9,6 +9,7 @@ import (
 	"redifu-example/internal/fetcher"
 	"redifu-example/internal/model"
 	"redifu-example/internal/repository"
+	"time"
 )
 
 type TicketService struct {
@@ -186,6 +187,10 @@ func (s *TicketService) GetTicketsByPage(page int64) ([]*model.Ticket, bool, err
 	return tickets, false, nil
 }
 
+func (s *TicketService) GetTicketsByDate(lowerbound time.Time, upperbound time.Time) ([]*model.Ticket, bool, error) {
+	return s.ticketFetcher.FetchByRange(lowerbound, upperbound)
+}
+
 func (s *TicketService) SeedTicket(randId string) error {
 	errSeedTicket := s.ticketRepository.SeedTicket(randId)
 	if errSeedTicket != nil {
@@ -220,6 +225,10 @@ func (s *TicketService) SeedTicketsBySecurityRisk(subtraction int64, lastRandId 
 
 func (s *TicketService) SeedTicketsByPage(page int64) error {
 	return s.ticketRepository.SeedPage(page)
+}
+
+func (s *TicketService) SeedTicketsByDate(lowerbound time.Time, upperbound time.Time) error {
+	return s.ticketRepository.SeedByDate(lowerbound, upperbound)
 }
 
 func NewTicketService() *TicketService {

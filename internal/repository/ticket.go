@@ -6,6 +6,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"redifu-example/definition"
 	"redifu-example/internal/model"
+	"time"
 )
 
 type TicketRepository struct {
@@ -66,8 +67,9 @@ func (t *TicketRepository) Create(ticket *model.Ticket) error {
 
 	t.timeline.AddItem(ticket, nil)
 	t.sortedByReporter.AddItem(ticket, []string{ticket.AccountUUID})
-	t.base.Upsert(ticket)
 	t.timelineBySecurityRisk.AddItem(ticket, nil)
+	t.page.PurgeAll(nil)
+	t.timeSeries.AddItem(ticket, nil)
 
 	return nil
 }
@@ -104,6 +106,9 @@ func (t *TicketRepository) Delete(ticket *model.Ticket) error {
 
 	t.timeline.RemoveItem(ticket, nil)
 	t.sortedByReporter.RemoveItem(ticket, []string{ticket.AccountUUID})
+	t.timelineBySecurityRisk.RemoveItem(ticket, nil)
+	t.page.PurgeAll(nil)
+	t.timeSeries.RemoveItem(ticket, nil)
 
 	return nil
 }
@@ -151,7 +156,13 @@ func rowScanner(row *sql.Row) (*model.Ticket, error) {
 	return ticket, errScan
 }
 
-func ticketScanner(rows *sql.Rows, relation map[string]redifu.Relation) (*model.Ticket, error) {
+func rowsScanner(rows *sql.Rows) (*model.Ticket, error) {
+	ticket := model.NewTicket()
+	errScan := rows.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.AccountUUID, &ticket.Description, &ticket.Resolved, &ticket.SecurityRisk)
+	return ticket, errScan
+}
+
+func rowsScannerWithRelation(rows *sql.Rows, relation map[string]redifu.Relation) (*model.Ticket, error) {
 	account := model.NewAccount()
 	ticket := model.NewTicket()
 
@@ -250,7 +261,7 @@ func (t *TicketRepository) SeedTickets(subtraction int64, lastRandId string) err
 		lastRandId,
 		nil,
 		rowScanner,
-		ticketScanner,
+		rowsScannerWithRelation,
 	)
 }
 
@@ -284,13 +295,13 @@ func (t *TicketRepository) SeedTicketsBySecurityRisk(subtraction int64, lastRand
 		lastRandId,
 		nil,
 		rowScanner,
-		ticketScanner,
+		rowsScannerWithRelation,
 	)
 }
 
 func (t *TicketRepository) SeedByAccount(reporterUUID string) error {
 	query := "SELECT * FROM ticket WHERE account_uuid = $1"
-	return t.sortedByReporterSeeder.SeedWithRelation(query, ticketScanner, []interface{}{reporterUUID}, []string{reporterUUID})
+	return t.sortedByReporterSeeder.SeedWithRelation(query, rowsScannerWithRelation, []interface{}{reporterUUID}, []string{reporterUUID})
 }
 
 func (t *TicketRepository) SeedPage(page int64) error {
@@ -301,7 +312,16 @@ func (t *TicketRepository) SeedPage(page int64) error {
 		  ORDER BY t.created_at DESC
 		`
 
-	return t.pageSeeder.SeedWithRelation(query, page, ticketScanner, nil, nil)
+	return t.pageSeeder.SeedWithRelation(query, page, rowsScannerWithRelation, nil, nil)
+}
+
+func (t *TicketRepository) SeedByDate(lowerbound time.Time, upperbound time.Time) error {
+	query := `
+		  SELECT * FROM ticket
+		  WHERE created_at BETWEEN $1 AND $2
+		`
+
+	return t.timeSeriesSeeder.Seed(query, nil, lowerbound, upperbound, nil, rowsScanner)
 }
 
 func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketRepository {
@@ -348,7 +368,8 @@ func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketR
 		page,
 		pageSeeder,
 		timeSeries,
-		timeSeriesSeeder)
+		timeSeriesSeeder,
+	)
 
 	return ticketRepository
 }

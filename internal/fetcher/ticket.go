@@ -5,6 +5,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"redifu-example/definition"
 	"redifu-example/internal/model"
+	"time"
 )
 
 type TicketFetcher struct {
@@ -75,6 +76,10 @@ func (t *TicketFetcher) FetchByPage(page int64) ([]*model.Ticket, error) {
 
 func (t *TicketFetcher) IsTicketPageSeedRequired(page int64) (bool, error) {
 	return t.page.RequiresSeeding(nil, page)
+}
+
+func (t *TicketFetcher) FetchByRange(lowerbound time.Time, upperbound time.Time) ([]*model.Ticket, bool, error) {
+	return t.timeSeries.Fetch(lowerbound, upperbound, nil, nil, nil)
 }
 
 func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {

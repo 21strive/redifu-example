@@ -6,10 +6,10 @@ type Ticket struct {
 	*redifu.Record
 	Description   string `json:"description"`
 	Resolved      bool   `json:"action_taken"`
+	SecurityRisk  int64  `json:"security_risk"`
 	AccountUUID   string `json:"account_uuid"`
 	AccountRandId string
-	Account       *Account `json:"account"`
-	SecurityRisk  int64    `json:"security_risk"`
+	Account       *Account `json:"-"`
 }
 
 func (t *Ticket) SetDescription(description string) {
