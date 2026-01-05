@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"github.com/21strive/redifu"
 	"github.com/redis/go-redis/v9"
@@ -52,7 +53,7 @@ func (t *TicketRepository) Init(
 	t.timeSeriesSeeder = timeSeriesSeeder
 }
 
-func (t *TicketRepository) Create(ticket *model.Ticket) error {
+func (t *TicketRepository) Create(ctx context.Context, ticket *model.Ticket) error {
 	query := "INSERT INTO ticket (uuid, randid, created_at, updated_at, account_uuid, description, resolved, security_risk) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
 	stmt, err := t.db.Prepare(query)
 	if err != nil {
@@ -68,7 +69,7 @@ func (t *TicketRepository) Create(ticket *model.Ticket) error {
 	t.timeline.AddItem(ticket, nil)
 	t.sortedByReporter.AddItem(ticket, []string{ticket.AccountUUID})
 	t.timelineBySecurityRisk.AddItem(ticket, nil)
-	t.page.PurgeAll(nil)
+	t.page.Purge().Exec(ctx)
 	t.timeSeries.AddItem(ticket, nil)
 
 	return nil
@@ -91,7 +92,7 @@ func (t *TicketRepository) Update(ticket *model.Ticket) error {
 	return errUpset
 }
 
-func (t *TicketRepository) Delete(ticket *model.Ticket) error {
+func (t *TicketRepository) Delete(ctx context.Context, ticket *model.Ticket) error {
 	query := "DELETE FROM ticket WHERE uuid = $1"
 	stmt, err := t.db.Prepare(query)
 	if err != nil {
@@ -107,7 +108,7 @@ func (t *TicketRepository) Delete(ticket *model.Ticket) error {
 	t.timeline.RemoveItem(ticket, nil)
 	t.sortedByReporter.RemoveItem(ticket, []string{ticket.AccountUUID})
 	t.timelineBySecurityRisk.RemoveItem(ticket, nil)
-	t.page.PurgeAll(nil)
+	t.page.Purge().Exec(ctx)
 	t.timeSeries.RemoveItem(ticket, nil)
 
 	return nil

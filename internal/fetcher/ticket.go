@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	"context"
 	"github.com/21strive/redifu"
 	"github.com/redis/go-redis/v9"
 	"redifu-example/definition"
@@ -46,20 +47,20 @@ func (t *TicketFetcher) IsBlank(randid string) (bool, error) {
 	return t.base.IsBlank(randid)
 }
 
-func (t *TicketFetcher) FetchTimeline(lastRandId []string) ([]*model.Ticket, string, string, error) {
-	return t.timeline.Fetch(nil, lastRandId, nil, nil)
+func (t *TicketFetcher) FetchTimeline(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, error) {
+	return t.timeline.Fetch(lastRandId).Exec(ctx)
 }
 
-func (t *TicketFetcher) IsTimelineSeedingRequired(totalReceivedItem int64) (bool, error) {
-	return t.timeline.RequiresSeeding(nil, totalReceivedItem)
+func (t *TicketFetcher) IsTimelineSeedingRequired(ctx context.Context, totalReceivedItem int64) (bool, error) {
+	return t.timeline.RequiresSeeding(totalReceivedItem).Exec(ctx)
 }
 
-func (t *TicketFetcher) FetchTimelineBySecurityRisk(lastRandId []string) ([]*model.Ticket, string, string, error) {
-	return t.timelineBySecurityRisk.Fetch(nil, lastRandId, nil, nil)
+func (t *TicketFetcher) FetchTimelineBySecurityRisk(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, error) {
+	return t.timelineBySecurityRisk.Fetch(lastRandId).Exec(ctx)
 }
 
-func (t *TicketFetcher) IsTimelineBySecurityRiskSeedingRequired(totalReceivedItem int64) (bool, error) {
-	return t.timelineBySecurityRisk.RequiresSeeding(nil, totalReceivedItem)
+func (t *TicketFetcher) IsTimelineBySecurityRiskSeedingRequired(ctx context.Context, totalReceivedItem int64) (bool, error) {
+	return t.timelineBySecurityRisk.RequiresSeeding(totalReceivedItem).Exec(ctx)
 }
 
 func (t *TicketFetcher) FetchSortedByReporter(reporterUUID string) ([]*model.Ticket, error) {
@@ -71,11 +72,11 @@ func (t *TicketFetcher) IsSortedByReporterSeedingRequired(reporterUUID string) (
 }
 
 func (t *TicketFetcher) FetchByPage(page int64) ([]*model.Ticket, error) {
-	return t.page.Fetch(nil, page, nil, nil)
+	return t.page.Fetch(page).Exec()
 }
 
 func (t *TicketFetcher) IsTicketPageSeedRequired(page int64) (bool, error) {
-	return t.page.RequiresSeeding(nil, page)
+	return t.page.RequiresSeeding(page).Exec()
 }
 
 func (t *TicketFetcher) FetchByRange(lowerbound time.Time, upperbound time.Time) ([]*model.Ticket, bool, error) {
@@ -87,20 +88,46 @@ func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
 	baseAccount := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
 	accountRelation := redifu.NewRelation[*model.Account](baseAccount, "Account", "AccountRandId")
 
-	timeline := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	timeline := redifu.NewTimeline[*model.Ticket](
+		redisClient,
+		base,
+		"ticket-timeline",
+		definition.ItemPerPage,
+		redifu.Descending,
+		definition.SortedSetTTL)
 	timeline.AddRelation("account", accountRelation)
 
-	timelineBySecurityRisk := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	timelineBySecurityRisk := redifu.NewTimeline[*model.Ticket](
+		redisClient,
+		base,
+		"ticket-timeline",
+		definition.ItemPerPage,
+		redifu.Descending,
+		definition.SortedSetTTL)
 	timelineBySecurityRisk.AddRelation("account", accountRelation)
 	timelineBySecurityRisk.SetSortingReference("SecurityRisk")
 
-	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
+	sortedByAccount := redifu.NewSorted[*model.Ticket](
+		redisClient,
+		base,
+		"ticket-sorted-by-account",
+		definition.SortedSetTTL)
 	sortedByAccount.AddRelation("account", accountRelation)
 
-	page := redifu.NewPage[*model.Ticket](redisClient, base, "ticket-page", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
+	page := redifu.NewPage[*model.Ticket](
+		redisClient,
+		base,
+		"ticket-page",
+		definition.ItemPerPage,
+		redifu.Descending,
+		definition.SortedSetTTL)
 	page.AddRelation("account", accountRelation)
 
-	timeSeries := redifu.NewTimeSeries[*model.Ticket](redisClient, base, "ticket-time-series", definition.SortedSetTTL)
+	timeSeries := redifu.NewTimeSeries[*model.Ticket](
+		redisClient,
+		base,
+		"ticket-time-series",
+		definition.SortedSetTTL)
 
 	ticketFetcher := &TicketFetcher{}
 	ticketFetcher.Init(base, timeline, timelineBySecurityRisk, sortedByAccount, page, timeSeries)
