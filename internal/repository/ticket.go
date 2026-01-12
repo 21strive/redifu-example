@@ -75,7 +75,7 @@ func (t *TicketRepository) Create(ctx context.Context, ticket *model.Ticket) err
 	return nil
 }
 
-func (t *TicketRepository) Update(ticket *model.Ticket) error {
+func (t *TicketRepository) Update(ctx context.Context, ticket *model.Ticket) error {
 	query := "UPDATE ticket SET description = $1, resolved = $2, security_risk = $3, updated_at = $4 WHERE uuid = $5"
 	stmt, err := t.db.Prepare(query)
 	if err != nil {
@@ -232,26 +232,32 @@ func (t *TicketRepository) SeedTicket(randId string) error {
 	return nil
 }
 
-func (t *TicketRepository) SeedTickets(subtraction int64, lastRandId string) error {
-	rowQuery := `
-		  SELECT * FROM ticket
-		  WHERE randid = $1
-		`
+func (t *TicketRepository) SeedTickets(ctx context.Context, subtraction int64, lastRandId string) error {
+	redifu.NewQuery("ticket", "t").
+		Select("SELECT t.*, a.*").
+		LeftJoin("account", "a", "t.account_uuid = a.uuid").
+		Where("t.created_at", redifu.LowerThan).
+		OrderBy("t.created_at", "DESC")
 
-	firstPageQuery := `
-		  SELECT t.*, a.* 
-		  FROM ticket t
-		  LEFT JOIN account a ON t.account_uuid = a.uuid
-		  ORDER BY t.created_at DESC
-		`
-
-	nextPageQuery := `
-		  SELECT t.*, a.* 
-		  FROM ticket t
-		  LEFT JOIN account a ON t.account_uuid = a.uuid
-		  WHERE t.created_at < $1 
-		  ORDER BY t.created_at DESC
-		`
+	//rowQuery := `
+	//	  SELECT * FROM ticket
+	//	  WHERE randid = $1
+	//	`
+	//
+	//firstPageQuery := `
+	//	  SELECT t.*, a.*
+	//	  FROM ticket t
+	//	  LEFT JOIN account a ON t.account_uuid = a.uuid
+	//	  ORDER BY t.created_at DESC
+	//	`
+	//
+	//nextPageQuery := `
+	//	  SELECT t.*, a.*
+	//	  FROM ticket t
+	//	  LEFT JOIN account a ON t.account_uuid = a.uuid
+	//	  WHERE t.created_at < $1
+	//	  ORDER BY t.created_at DESC
+	//	`
 
 	return t.timelineSeeder.SeedPartialWithRelation(
 		rowQuery,
@@ -266,7 +272,7 @@ func (t *TicketRepository) SeedTickets(subtraction int64, lastRandId string) err
 	)
 }
 
-func (t *TicketRepository) SeedTicketsBySecurityRisk(subtraction int64, lastRandId string) error {
+func (t *TicketRepository) SeedTicketsBySecurityRisk(ctx context.Context, subtraction int64, lastRandId string) error {
 	rowQuery := `
 		  SELECT * FROM ticket
 		  WHERE randid = $1
@@ -300,7 +306,7 @@ func (t *TicketRepository) SeedTicketsBySecurityRisk(subtraction int64, lastRand
 	)
 }
 
-func (t *TicketRepository) SeedByAccount(reporterUUID string) error {
+func (t *TicketRepository) SeedByAccount(ctx context.Context, reporterUUID string) error {
 	query := "SELECT * FROM ticket WHERE account_uuid = $1"
 	return t.sortedByReporterSeeder.SeedWithRelation(query, rowsScannerWithRelation, []interface{}{reporterUUID}, []string{reporterUUID})
 }
@@ -316,7 +322,7 @@ func (t *TicketRepository) SeedPage(page int64) error {
 	return t.pageSeeder.SeedWithRelation(query, page, rowsScannerWithRelation, nil, nil)
 }
 
-func (t *TicketRepository) SeedByDate(lowerbound time.Time, upperbound time.Time) error {
+func (t *TicketRepository) SeedByDate(ctx context.Context, lowerbound time.Time, upperbound time.Time) error {
 	query := `
 		  SELECT * FROM ticket
 		  WHERE created_at BETWEEN $1 AND $2

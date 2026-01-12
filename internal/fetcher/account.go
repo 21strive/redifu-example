@@ -17,7 +17,7 @@ func (a *AccountFetcher) Init(base *redifu.Base[*model.Account]) {
 	a.base = base
 }
 
-func (a *AccountFetcher) Fetch(accountRandId string) (*model.Account, error) {
+func (a *AccountFetcher) Fetch(ctx context.Context, accountRandId string) (*model.Account, error) {
 	account, err := a.base.Get(accountRandId)
 	if err != nil {
 		return nil, err
@@ -26,11 +26,11 @@ func (a *AccountFetcher) Fetch(accountRandId string) (*model.Account, error) {
 	return account, nil
 }
 
-func (a *AccountFetcher) IsBlank(accountRandId string) (bool, error) {
+func (a *AccountFetcher) IsBlank(ctx context.Context, accountRandId string) (bool, error) {
 	return a.base.IsBlank(accountRandId)
 }
 
-func (a *AccountFetcher) FetchByUUID(accountUUID string) (*model.Account, error) {
+func (a *AccountFetcher) FetchByUUID(ctx context.Context, accountUUID string) (*model.Account, error) {
 	// resolve pointer
 	errGet := a.redisClient.Get(context.Background(), "account:pointer:"+accountUUID)
 	if errGet.Err() != nil {

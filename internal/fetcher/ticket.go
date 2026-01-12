@@ -34,7 +34,7 @@ func (t *TicketFetcher) Init(
 	t.timeSeries = timeSeries
 }
 
-func (t *TicketFetcher) Fetch(randid string) (*model.Ticket, error) {
+func (t *TicketFetcher) Fetch(ctx context.Context, randid string) (*model.Ticket, error) {
 	ticket, err := t.base.Get(randid)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func (t *TicketFetcher) Fetch(randid string) (*model.Ticket, error) {
 	return ticket, nil
 }
 
-func (t *TicketFetcher) IsBlank(randid string) (bool, error) {
+func (t *TicketFetcher) IsBlank(ctx context.Context, randid string) (bool, error) {
 	return t.base.IsBlank(randid)
 }
 
@@ -63,23 +63,23 @@ func (t *TicketFetcher) IsTimelineBySecurityRiskSeedingRequired(ctx context.Cont
 	return t.timelineBySecurityRisk.RequiresSeeding(totalReceivedItem).Exec(ctx)
 }
 
-func (t *TicketFetcher) FetchSortedByReporter(reporterUUID string) ([]*model.Ticket, error) {
+func (t *TicketFetcher) FetchSortedByReporter(ctx context.Context, reporterUUID string) ([]*model.Ticket, error) {
 	return t.sortedByAccount.Fetch([]string{reporterUUID}, redifu.Descending, nil, nil)
 }
 
-func (t *TicketFetcher) IsSortedByReporterSeedingRequired(reporterUUID string) (bool, error) {
+func (t *TicketFetcher) IsSortedByReporterSeedingRequired(ctx context.Context, reporterUUID string) (bool, error) {
 	return t.sortedByAccount.RequiresSeeding([]string{reporterUUID})
 }
 
-func (t *TicketFetcher) FetchByPage(page int64) ([]*model.Ticket, error) {
+func (t *TicketFetcher) FetchByPage(ctx context.Context, page int64) ([]*model.Ticket, error) {
 	return t.page.Fetch(page).Exec()
 }
 
-func (t *TicketFetcher) IsTicketPageSeedRequired(page int64) (bool, error) {
+func (t *TicketFetcher) IsTicketPageSeedRequired(ctx context.Context, page int64) (bool, error) {
 	return t.page.RequiresSeeding(page).Exec()
 }
 
-func (t *TicketFetcher) FetchByRange(lowerbound time.Time, upperbound time.Time) ([]*model.Ticket, bool, error) {
+func (t *TicketFetcher) FetchByRange(ctx context.Context, lowerbound time.Time, upperbound time.Time) ([]*model.Ticket, bool, error) {
 	return t.timeSeries.Fetch(lowerbound, upperbound, nil, nil, nil)
 }
 
