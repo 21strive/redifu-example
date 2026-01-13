@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"github.com/21strive/redifu"
@@ -29,17 +30,17 @@ func (s *TicketService) InitFetcher(redisClient redis.UniversalClient) {
 	s.ticketFetcher = ticketFetcher
 }
 
-func (s *TicketService) Create(description string, accountUUID string, securityRisk int64) error {
+func (s *TicketService) Create(ctx context.Context, description string, accountUUID string, securityRisk int64) error {
 	ticket := model.NewTicket()
 	ticket.SetDescription(description)
 	ticket.SetAccountUUID(accountUUID)
 	ticket.SetSecurityRisk(securityRisk)
 
-	return s.ticketRepository.Create(ticket)
+	return s.ticketRepository.Create(ctx, ticket)
 }
 
-func (s *TicketService) Find(ticketUUID string) (*model.Ticket, error) {
-	ticket, errFind := s.ticketRepository.FindByUUID(ticketUUID)
+func (s *TicketService) Find(ctx context.Context, ticketUUID string) (*model.Ticket, error) {
+	ticket, errFind := s.ticketRepository.FindByUUID(ctx, ticketUUID)
 	if errFind != nil {
 		return nil, errFind
 	}
@@ -47,37 +48,37 @@ func (s *TicketService) Find(ticketUUID string) (*model.Ticket, error) {
 	return ticket, nil
 }
 
-func (s *TicketService) UpdateDescription(ticketUUID string, description string) error {
-	ticket, errFind := s.Find(ticketUUID)
+func (s *TicketService) UpdateDescription(ctx context.Context, ticketUUID string, description string) error {
+	ticket, errFind := s.Find(ctx, ticketUUID)
 	if errFind != nil {
 		return errFind
 	}
 
 	ticket.SetDescription(description)
-	return s.ticketRepository.Update(ticket)
+	return s.ticketRepository.Update(ctx, ticket)
 }
 
-func (s *TicketService) Delete(ticketUUID string) error {
-	ticket, errFind := s.Find(ticketUUID)
+func (s *TicketService) Delete(ctx context.Context, ticketUUID string) error {
+	ticket, errFind := s.Find(ctx, ticketUUID)
 	if errFind != nil {
 		return errFind
 	}
 
-	return s.ticketRepository.Delete(ticket)
+	return s.ticketRepository.Delete(ctx, ticket)
 }
 
-func (s *TicketService) ResolveTicket(ticketUUID string) error {
-	ticket, errFind := s.Find(ticketUUID)
+func (s *TicketService) ResolveTicket(ctx context.Context, ticketUUID string) error {
+	ticket, errFind := s.Find(ctx, ticketUUID)
 	if errFind != nil {
 		return errFind
 	}
 
 	ticket.SetResolved()
-	return s.ticketRepository.Update(ticket)
+	return s.ticketRepository.Update(ctx, ticket)
 }
 
-func (s *TicketService) GetTicket(randid string) (*model.Ticket, *model.Account, bool, error) {
-	isBlank, err := s.ticketFetcher.IsBlank(randid)
+func (s *TicketService) GetTicket(ctx context.Context, randid string) (*model.Ticket, *model.Account, bool, error) {
+	isBlank, err := s.ticketFetcher.IsBlank(ctx, randid)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -85,12 +86,12 @@ func (s *TicketService) GetTicket(randid string) (*model.Ticket, *model.Account,
 		return nil, nil, false, nil
 	}
 
-	ticket, errFetch := s.ticketFetcher.Fetch(randid)
+	ticket, errFetch := s.ticketFetcher.Fetch(ctx, randid)
 	if errFetch != nil {
 		return nil, nil, false, errFetch
 	}
 
-	accountFromCache, err := s.accountService.GetAccountByUUID(ticket.AccountUUID)
+	accountFromCache, err := s.accountService.GetAccountByUUID(ctx, ticket.AccountUUID)
 	if err != nil {
 		if err == definition.NotFound {
 			return ticket, nil, true, nil
@@ -101,8 +102,8 @@ func (s *TicketService) GetTicket(randid string) (*model.Ticket, *model.Account,
 	return ticket, accountFromCache, false, nil
 }
 
-func (s *TicketService) GetTickets(lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
-	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimeline(lastRandId)
+func (s *TicketService) GetTickets(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
+	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimeline(ctx, lastRandId)
 	if errFetch != nil {
 		requiresSeed := false
 		if errors.Is(errFetch, redifu.ResetPagination) {
@@ -113,7 +114,7 @@ func (s *TicketService) GetTickets(lastRandId []string) ([]*model.Ticket, string
 
 	totalReceivedItems := int64(len(tickets))
 	if totalReceivedItems < definition.ItemPerPage {
-		seedRequired, errCheck := s.ticketFetcher.IsTimelineSeedingRequired(totalReceivedItems)
+		seedRequired, errCheck := s.ticketFetcher.IsTimelineSeedingRequired(ctx, totalReceivedItems)
 		if errCheck != nil {
 			return nil, validLastRandId, position, false, errCheck
 		}
@@ -126,13 +127,13 @@ func (s *TicketService) GetTickets(lastRandId []string) ([]*model.Ticket, string
 	return tickets, validLastRandId, position, false, nil
 }
 
-func (s *TicketService) GetTicketsByReporter(reporterUUID string) ([]*model.Ticket, bool, error) {
-	tickets, errFetch := s.ticketFetcher.FetchSortedByReporter(reporterUUID)
+func (s *TicketService) GetTicketsByReporter(ctx context.Context, reporterUUID string) ([]*model.Ticket, bool, error) {
+	tickets, errFetch := s.ticketFetcher.FetchSortedByReporter(ctx, reporterUUID)
 	if errFetch != nil {
 		return nil, false, errFetch
 	}
 	if len(tickets) == 0 {
-		isSeedRequired, errCheck := s.ticketFetcher.IsSortedByReporterSeedingRequired(reporterUUID)
+		isSeedRequired, errCheck := s.ticketFetcher.IsSortedByReporterSeedingRequired(ctx, reporterUUID)
 		if errCheck != nil {
 			return nil, false, errCheck
 		}
@@ -144,8 +145,8 @@ func (s *TicketService) GetTicketsByReporter(reporterUUID string) ([]*model.Tick
 	return tickets, false, nil
 }
 
-func (s *TicketService) GetTicketsBySecurityRisk(lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
-	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimelineBySecurityRisk(lastRandId)
+func (s *TicketService) GetTicketsBySecurityRisk(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
+	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimelineBySecurityRisk(ctx, lastRandId)
 	if errFetch != nil {
 		requiresSeed := false
 		if errors.Is(errFetch, redifu.ResetPagination) {
@@ -156,7 +157,7 @@ func (s *TicketService) GetTicketsBySecurityRisk(lastRandId []string) ([]*model.
 
 	totalReceivedItems := int64(len(tickets))
 	if totalReceivedItems < definition.ItemPerPage {
-		seedRequired, errCheck := s.ticketFetcher.IsTimelineBySecurityRiskSeedingRequired(totalReceivedItems)
+		seedRequired, errCheck := s.ticketFetcher.IsTimelineBySecurityRiskSeedingRequired(ctx, totalReceivedItems)
 		if errCheck != nil {
 			return nil, validLastRandId, position, false, errCheck
 		}
@@ -168,15 +169,15 @@ func (s *TicketService) GetTicketsBySecurityRisk(lastRandId []string) ([]*model.
 	return tickets, validLastRandId, position, false, nil
 }
 
-func (s *TicketService) GetTicketsByPage(page int64) ([]*model.Ticket, bool, error) {
-	tickets, errFetch := s.ticketFetcher.FetchByPage(page)
+func (s *TicketService) GetTicketsByPage(ctx context.Context, page int64) ([]*model.Ticket, bool, error) {
+	tickets, errFetch := s.ticketFetcher.FetchByPage(ctx, page)
 	if errFetch != nil {
 		return nil, false, errFetch
 	}
 
 	totalReceivedItems := int64(len(tickets))
 	if totalReceivedItems == 0 {
-		seedRequired, errCheck := s.ticketFetcher.IsTicketPageSeedRequired(page)
+		seedRequired, errCheck := s.ticketFetcher.IsTicketPageSeedRequired(ctx, page)
 		if errCheck != nil {
 			return nil, false, errCheck
 		}
@@ -187,22 +188,22 @@ func (s *TicketService) GetTicketsByPage(page int64) ([]*model.Ticket, bool, err
 	return tickets, false, nil
 }
 
-func (s *TicketService) GetTicketsByDate(lowerbound time.Time, upperbound time.Time) ([]*model.Ticket, bool, error) {
-	return s.ticketFetcher.FetchByRange(lowerbound, upperbound)
+func (s *TicketService) GetTicketsByDate(ctx context.Context, lowerbound time.Time, upperbound time.Time) ([]*model.Ticket, bool, error) {
+	return s.ticketFetcher.FetchByRange(ctx, lowerbound, upperbound)
 }
 
-func (s *TicketService) SeedTicket(randId string) error {
-	errSeedTicket := s.ticketRepository.SeedTicket(randId)
+func (s *TicketService) SeedTicket(ctx context.Context, randId string) error {
+	errSeedTicket := s.ticketRepository.SeedTicket(ctx, randId)
 	if errSeedTicket != nil {
 		return errSeedTicket
 	}
 
-	ticketFromCache, errFetch := s.ticketFetcher.Fetch(randId)
+	ticketFromCache, errFetch := s.ticketFetcher.Fetch(ctx, randId)
 	if errFetch != nil {
 		return errFetch
 	}
 
-	errSeed := s.accountService.SeedAccountByUUID(ticketFromCache.AccountUUID)
+	errSeed := s.accountService.SeedAccountByUUID(ctx, ticketFromCache.AccountUUID)
 	// allow system to seed target ticket although the reporter account is deleted/not exists
 	if errSeed != nil && errSeed != definition.NotFound {
 		return errSeed
@@ -211,24 +212,24 @@ func (s *TicketService) SeedTicket(randId string) error {
 	return nil
 }
 
-func (s *TicketService) SeedTickets(subtraction int64, lastRandId string) error {
-	return s.ticketRepository.SeedTickets(subtraction, lastRandId)
+func (s *TicketService) SeedTickets(ctx context.Context, subtraction int64, lastRandId string) error {
+	return s.ticketRepository.SeedTickets(ctx, subtraction, lastRandId)
 }
 
-func (s *TicketService) SeedTicketsByAccount(reporterUUID string) error {
-	return s.ticketRepository.SeedByAccount(reporterUUID)
+func (s *TicketService) SeedTicketsByAccount(ctx context.Context, reporterUUID string) error {
+	return s.ticketRepository.SeedByAccount(ctx, reporterUUID)
 }
 
-func (s *TicketService) SeedTicketsBySecurityRisk(subtraction int64, lastRandId string) error {
-	return s.ticketRepository.SeedTicketsBySecurityRisk(subtraction, lastRandId)
+func (s *TicketService) SeedTicketsBySecurityRisk(ctx context.Context, subtraction int64, lastRandId string) error {
+	return s.ticketRepository.SeedTicketsBySecurityRisk(ctx, subtraction, lastRandId)
 }
 
-func (s *TicketService) SeedTicketsByPage(page int64) error {
-	return s.ticketRepository.SeedPage(page)
+func (s *TicketService) SeedTicketsByPage(ctx context.Context, page int64) error {
+	return s.ticketRepository.SeedPage(ctx, page)
 }
 
-func (s *TicketService) SeedTicketsByDate(lowerbound time.Time, upperbound time.Time) error {
-	return s.ticketRepository.SeedByDate(lowerbound, upperbound)
+func (s *TicketService) SeedTicketsByDate(ctx context.Context, lowerbound time.Time, upperbound time.Time) error {
+	return s.ticketRepository.SeedByDate(ctx, lowerbound, upperbound)
 }
 
 func NewTicketService() *TicketService {

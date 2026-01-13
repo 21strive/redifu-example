@@ -18,7 +18,7 @@ func (a *AccountFetcher) Init(base *redifu.Base[*model.Account]) {
 }
 
 func (a *AccountFetcher) Fetch(ctx context.Context, accountRandId string) (*model.Account, error) {
-	account, err := a.base.Get(accountRandId)
+	account, err := a.base.Get(ctx, accountRandId)
 	if err != nil {
 		return nil, err
 	}
@@ -27,12 +27,12 @@ func (a *AccountFetcher) Fetch(ctx context.Context, accountRandId string) (*mode
 }
 
 func (a *AccountFetcher) IsBlank(ctx context.Context, accountRandId string) (bool, error) {
-	return a.base.IsBlank(accountRandId)
+	return a.base.IsBlank(ctx, accountRandId)
 }
 
 func (a *AccountFetcher) FetchByUUID(ctx context.Context, accountUUID string) (*model.Account, error) {
 	// resolve pointer
-	errGet := a.redisClient.Get(context.Background(), "account:pointer:"+accountUUID)
+	errGet := a.redisClient.Get(ctx, "account:pointer:"+accountUUID)
 	if errGet.Err() != nil {
 		if errGet.Err() == redis.Nil {
 			return nil, definition.NotFound
@@ -41,7 +41,7 @@ func (a *AccountFetcher) FetchByUUID(ctx context.Context, accountUUID string) (*
 	}
 
 	accountRandId := errGet.Val()
-	isBlank, errCheck := a.IsBlank(accountRandId)
+	isBlank, errCheck := a.IsBlank(ctx, accountRandId)
 	if errCheck != nil {
 		return nil, errCheck
 	}
@@ -49,7 +49,7 @@ func (a *AccountFetcher) FetchByUUID(ctx context.Context, accountUUID string) (*
 		return nil, definition.NotFound
 	}
 
-	return a.Fetch(accountRandId)
+	return a.Fetch(ctx, accountRandId)
 }
 
 func NewAccountFetcher(redisClient redis.UniversalClient) *AccountFetcher {

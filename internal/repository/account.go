@@ -20,7 +20,7 @@ func (ar *AccountRepository) Init(db *sql.DB, base *redifu.Base[*model.Account])
 	ar.db = db
 }
 
-func (ar *AccountRepository) Create(account *model.Account) error {
+func (ar *AccountRepository) Create(ctx context.Context, account *model.Account) error {
 	query := "INSERT INTO account (uuid, randid, created_at, updated_at, name, email) VALUES ($1, $2, $3, $4, $5, $6)"
 	stmt, err := ar.db.Prepare(query)
 	if err != nil {
@@ -33,7 +33,7 @@ func (ar *AccountRepository) Create(account *model.Account) error {
 		return errCreate
 	}
 
-	errSet := ar.base.Upsert(account)
+	errSet := ar.base.Upsert(ctx, account)
 	if errSet != nil {
 		return errSet
 	}
@@ -57,21 +57,21 @@ func (ar *AccountRepository) FindByUUID(accountUUID string) (*model.Account, err
 	return account, nil
 }
 
-func (ar *AccountRepository) SeedByUUID(accountUUID string) error {
+func (ar *AccountRepository) SeedByUUID(ctx context.Context, accountUUID string) error {
 	accountFromDB, errFind := ar.FindByUUID(accountUUID)
 	if errFind != nil {
 		return errFind
 	}
 
-	errSet := ar.redisClient.Set(context.Background(), "account:pointer:"+accountUUID, accountFromDB.GetRandId(), definition.BaseTTL).Err()
+	errSet := ar.redisClient.Set(ctx, "account:pointer:"+accountUUID, accountFromDB.GetRandId(), definition.BaseTTL).Err()
 	if errSet != nil {
 		return errSet
 	}
 
-	return ar.base.Upsert(accountFromDB)
+	return ar.base.Upsert(ctx, accountFromDB)
 }
 
-func (ar *AccountRepository) Update(account *model.Account) error {
+func (ar *AccountRepository) Update(ctx context.Context, account *model.Account) error {
 	query := "UPDATE account SET name = $1, email = $2 WHERE uuid = $3"
 	stmt, err := ar.db.Prepare(query)
 	if err != nil {
@@ -84,7 +84,7 @@ func (ar *AccountRepository) Update(account *model.Account) error {
 		return errUpdate
 	}
 
-	errSet := ar.base.Upsert(account)
+	errSet := ar.base.Upsert(ctx, account)
 	if errSet != nil {
 		return errSet
 	}

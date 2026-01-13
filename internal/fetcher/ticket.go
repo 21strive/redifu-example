@@ -35,7 +35,7 @@ func (t *TicketFetcher) Init(
 }
 
 func (t *TicketFetcher) Fetch(ctx context.Context, randid string) (*model.Ticket, error) {
-	ticket, err := t.base.Get(randid)
+	ticket, err := t.base.Get(ctx, randid)
 	if err != nil {
 		return nil, err
 	}
@@ -44,43 +44,43 @@ func (t *TicketFetcher) Fetch(ctx context.Context, randid string) (*model.Ticket
 }
 
 func (t *TicketFetcher) IsBlank(ctx context.Context, randid string) (bool, error) {
-	return t.base.IsBlank(randid)
+	return t.base.IsBlank(ctx, randid)
 }
 
 func (t *TicketFetcher) FetchTimeline(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, error) {
-	return t.timeline.Fetch(lastRandId).Exec(ctx)
+	return t.timeline.Fetch(ctx, lastRandId).Exec()
 }
 
 func (t *TicketFetcher) IsTimelineSeedingRequired(ctx context.Context, totalReceivedItem int64) (bool, error) {
-	return t.timeline.RequiresSeeding(totalReceivedItem).Exec(ctx)
+	return t.timeline.RequiresSeeding(ctx, totalReceivedItem)
 }
 
 func (t *TicketFetcher) FetchTimelineBySecurityRisk(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, error) {
-	return t.timelineBySecurityRisk.Fetch(lastRandId).Exec(ctx)
+	return t.timelineBySecurityRisk.Fetch(ctx, lastRandId).Exec()
 }
 
 func (t *TicketFetcher) IsTimelineBySecurityRiskSeedingRequired(ctx context.Context, totalReceivedItem int64) (bool, error) {
-	return t.timelineBySecurityRisk.RequiresSeeding(totalReceivedItem).Exec(ctx)
+	return t.timelineBySecurityRisk.RequiresSeeding(ctx, totalReceivedItem)
 }
 
 func (t *TicketFetcher) FetchSortedByReporter(ctx context.Context, reporterUUID string) ([]*model.Ticket, error) {
-	return t.sortedByAccount.Fetch([]string{reporterUUID}, redifu.Descending, nil, nil)
+	return t.sortedByAccount.Fetch(ctx, redifu.Descending).WithParams(reporterUUID).Exec()
 }
 
 func (t *TicketFetcher) IsSortedByReporterSeedingRequired(ctx context.Context, reporterUUID string) (bool, error) {
-	return t.sortedByAccount.RequiresSeeding([]string{reporterUUID})
+	return t.sortedByAccount.RequiresSeeding(ctx, reporterUUID)
 }
 
 func (t *TicketFetcher) FetchByPage(ctx context.Context, page int64) ([]*model.Ticket, error) {
-	return t.page.Fetch(page).Exec()
+	return t.page.Fetch(ctx, page).Exec()
 }
 
 func (t *TicketFetcher) IsTicketPageSeedRequired(ctx context.Context, page int64) (bool, error) {
-	return t.page.RequiresSeeding(page).Exec()
+	return t.page.RequiresSeeding(ctx, page)
 }
 
 func (t *TicketFetcher) FetchByRange(ctx context.Context, lowerbound time.Time, upperbound time.Time) ([]*model.Ticket, bool, error) {
-	return t.timeSeries.Fetch(lowerbound, upperbound, nil, nil, nil)
+	return t.timeSeries.Fetch(ctx, lowerbound, upperbound).Exec()
 }
 
 func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
@@ -100,7 +100,7 @@ func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
 	timelineBySecurityRisk := redifu.NewTimeline[*model.Ticket](
 		redisClient,
 		base,
-		"ticket-timeline",
+		"ticket-timeline-by-security",
 		definition.ItemPerPage,
 		redifu.Descending,
 		definition.SortedSetTTL)

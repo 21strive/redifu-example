@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"github.com/redis/go-redis/v9"
 	"redifu-example/internal/fetcher"
@@ -23,20 +24,20 @@ func (s *AccountService) InitFetcher(redisClient redis.UniversalClient) {
 	s.accountFetcher = accountFetcher
 }
 
-func (s *AccountService) Create(name, email string) error {
+func (s *AccountService) Create(ctx context.Context, name, email string) error {
 	account := model.NewAccount()
 	account.Name = name
 	account.Email = email
 
-	return s.accountRepository.Create(account)
+	return s.accountRepository.Create(ctx, account)
 }
 
-func (s *AccountService) SeedAccountByUUID(accountUUID string) error {
-	return s.accountRepository.SeedByUUID(accountUUID)
+func (s *AccountService) SeedAccountByUUID(ctx context.Context, accountUUID string) error {
+	return s.accountRepository.SeedByUUID(ctx, accountUUID)
 }
 
-func (s *AccountService) GetAccountByUUID(accountUUID string) (*model.Account, error) {
-	return s.accountFetcher.FetchByUUID(accountUUID)
+func (s *AccountService) GetAccountByUUID(ctx context.Context, accountUUID string) (*model.Account, error) {
+	return s.accountFetcher.FetchByUUID(ctx, accountUUID)
 }
 
 func NewAccountService() *AccountService {

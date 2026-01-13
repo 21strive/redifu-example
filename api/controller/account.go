@@ -18,12 +18,14 @@ type AccountController struct {
 }
 
 func (ac *AccountController) CreateAccount(c *fiber.Ctx) error {
+	mainCtx := c.Context()
+
 	var reqBody CreateAccountRequest
 	if err := c.BodyParser(&reqBody); err != nil {
 		return logger.Error(c, fiber.StatusBadRequest, err, "A100", "CreateAccount.BodyParser")
 	}
 
-	errCreate := ac.accountService.Create(reqBody.Name, reqBody.Email)
+	errCreate := ac.accountService.Create(mainCtx, reqBody.Name, reqBody.Email)
 	if errCreate != nil {
 		return logger.Error(c, fiber.StatusInternalServerError, errCreate, "A500", "CreateAccount.Create")
 	}
