@@ -8,8 +8,8 @@ type Ticket struct {
 	Resolved      bool   `json:"action_taken"`
 	SecurityRisk  int64  `json:"security_risk"`
 	AccountUUID   string `json:"account_uuid"`
-	AccountRandId string
-	Account       *Account `json:"-"`
+	AccountRandId string `json:",omitempty"`
+	Account       *Account
 }
 
 func (t *Ticket) SetDescription(description string) {

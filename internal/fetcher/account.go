@@ -27,7 +27,7 @@ func (a *AccountFetcher) Fetch(ctx context.Context, accountRandId string) (*mode
 }
 
 func (a *AccountFetcher) IsBlank(ctx context.Context, accountRandId string) (bool, error) {
-	return a.base.IsBlank(ctx, accountRandId)
+	return a.base.IsMissing(ctx, accountRandId)
 }
 
 func (a *AccountFetcher) FetchByUUID(ctx context.Context, accountUUID string) (*model.Account, error) {
