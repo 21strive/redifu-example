@@ -4,12 +4,16 @@ import "github.com/21strive/redifu"
 
 type Ticket struct {
 	*redifu.Record
-	Description   string `json:"description"`
-	Resolved      bool   `json:"action_taken"`
-	SecurityRisk  int64  `json:"security_risk"`
-	AccountUUID   string `json:"account_uuid"`
-	AccountRandId string `json:",omitempty"`
-	Account       *Account
+	Description    string `json:"description"`
+	Resolved       bool   `json:"action_taken"`
+	SecurityRisk   int64  `json:"security_risk"`
+	AccountUUID    string `json:"account_uuid"`
+	AccountRandId  string `json:",omitempty"`
+	CategoryUUID   string `json:"category_uuid"`
+	CategoryRandId string `json:",omitempty"`
+
+	Account  *Account
+	Category *Category
 }
 
 func (t *Ticket) SetDescription(description string) {

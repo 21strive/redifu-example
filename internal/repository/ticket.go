@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"github.com/21strive/redifu"
-	"github.com/redis/go-redis/v9"
 	"redifu-example/definition"
 	"redifu-example/internal/model"
+	"redifu-example/internal/pools"
 	"time"
 )
 
@@ -17,6 +17,8 @@ type TicketRepository struct {
 	timelineSeeder               *redifu.TimelineSeeder[*model.Ticket]
 	timelineBySecurityRisk       *redifu.Timeline[*model.Ticket]
 	timelineBySecurityRiskSeeder *redifu.TimelineSeeder[*model.Ticket]
+	timelineByCategory           *redifu.Timeline[*model.Ticket]
+	timelineByCategorySeeder     *redifu.TimelineSeeder[*model.Ticket]
 	sortedByReporter             *redifu.Sorted[*model.Ticket]
 	sortedByReporterSeeder       *redifu.SortedSeeder[*model.Ticket]
 	page                         *redifu.Page[*model.Ticket]
@@ -30,6 +32,8 @@ func (t *TicketRepository) Init(
 	base *redifu.Base[*model.Ticket],
 	timeline *redifu.Timeline[*model.Ticket],
 	timelineSeeder *redifu.TimelineSeeder[*model.Ticket],
+	timelineByCategory *redifu.Timeline[*model.Ticket],
+	timelineByCategorySeeder *redifu.TimelineSeeder[*model.Ticket],
 	timelineBySecurityRisk *redifu.Timeline[*model.Ticket],
 	timelineBySecurityRiskSeeder *redifu.TimelineSeeder[*model.Ticket],
 	sortedByReporter *redifu.Sorted[*model.Ticket],
@@ -43,6 +47,8 @@ func (t *TicketRepository) Init(
 	t.base = base
 	t.timeline = timeline
 	t.timelineSeeder = timelineSeeder
+	t.timelineByCategory = timelineByCategory
+	t.timelineByCategorySeeder = timelineByCategorySeeder
 	t.timelineBySecurityRisk = timelineBySecurityRisk
 	t.timelineBySecurityRiskSeeder = timelineBySecurityRiskSeeder
 	t.sortedByReporter = sortedByReporter
@@ -88,7 +94,7 @@ func (t *TicketRepository) Update(ctx context.Context, ticket *model.Ticket) err
 		return errUpdate
 	}
 
-	errUpset := t.base.Upsert(ctx, ticket)
+	errUpset := t.base.Set(ctx, ticket)
 	return errUpset
 }
 
@@ -165,6 +171,7 @@ func rowsScanner(rows *sql.Rows) (*model.Ticket, error) {
 
 func rowsScannerWithRelation(ctx context.Context, rows *sql.Rows, relation map[string]redifu.Relation) (*model.Ticket, error) {
 	account := model.NewAccount()
+	category := model.NewCategory()
 	ticket := model.NewTicket()
 
 	// Use sql.Null* types for nullable fields from the join
@@ -175,12 +182,19 @@ func rowsScannerWithRelation(ctx context.Context, rows *sql.Rows, relation map[s
 	var accountName sql.NullString
 	var accountEmail sql.NullString
 
+	var categoryUUID sql.NullString
+	var categoryRandId sql.NullString
+	var categoryCreatedAt sql.NullTime
+	var categoryUpdatedAt sql.NullTime
+	var categoryName sql.NullString
+
 	errScan := rows.Scan(
 		&ticket.UUID,
 		&ticket.RandId,
 		&ticket.CreatedAt,
 		&ticket.UpdatedAt,
 		&ticket.AccountUUID,
+		&ticket.CategoryUUID,
 		&ticket.Description,
 		&ticket.Resolved,
 		&ticket.SecurityRisk,
@@ -190,6 +204,11 @@ func rowsScannerWithRelation(ctx context.Context, rows *sql.Rows, relation map[s
 		&accountUpdatedAt,
 		&accountName,
 		&accountEmail,
+		&categoryUUID,
+		&categoryRandId,
+		&categoryCreatedAt,
+		&categoryUpdatedAt,
+		&categoryName,
 	)
 
 	if errScan != nil {
@@ -212,6 +231,21 @@ func rowsScannerWithRelation(ctx context.Context, rows *sql.Rows, relation map[s
 		}
 	}
 
+	// Only populate category if the join returned data (not NULL)
+	if categoryRandId.Valid {
+		category.UUID = categoryUUID.String
+		category.RandId = categoryRandId.String
+		category.CreatedAt = categoryCreatedAt.Time
+		category.UpdatedAt = categoryUpdatedAt.Time
+		category.Category = categoryName.String
+
+		ticket.CategoryRandId = category.RandId
+		errSet := relation["category"].SetItem(ctx, category)
+		if errSet != nil {
+			return ticket, errSet
+		}
+	}
+
 	return ticket, nil
 }
 
@@ -224,7 +258,7 @@ func (t *TicketRepository) SeedTicket(ctx context.Context, randId string) error 
 		return errFind
 	}
 
-	errSet := t.base.Upsert(ctx, ticket)
+	errSet := t.base.Set(ctx, ticket)
 	if errSet != nil {
 		return errSet
 	}
@@ -254,22 +288,11 @@ func (t *TicketRepository) SeedTickets(ctx context.Context, subtraction int64, l
 	//	  ORDER BY t.created_at DESC
 	//	`
 
-	//return t.timelineSeeder.SeedPartialWithRelation(
-	//	rowQuery,
-	//	firstPageQuery,
-	//	nextPageQuery,
-	//	nil,
-	//	subtraction,
-	//	lastRandId,
-	//	nil,
-	//	rowScanner,
-	//	rowsScannerWithRelation,
-	//)
-
 	query := redifu.NewQuery("ticket", "t").
-		Select("SELECT t.*, a.*").
+		Select("t.*, a.*, c.*").
 		LeftJoin("account", "a", "t.account_uuid = a.uuid").
-		OrderBy("t.created_at", "DESC")
+		LeftJoin("category", "c", "t.category_uuid = c.uuid").
+		OrderBy("t.created_at", redifu.Descending)
 
 	return t.timelineSeeder.Seed(subtraction, lastRandId, query).
 		ExecWithRelation(
@@ -279,10 +302,28 @@ func (t *TicketRepository) SeedTickets(ctx context.Context, subtraction int64, l
 		)
 }
 
+func (t *TicketRepository) SeedByCategory(ctx context.Context, subtraction int64, lastRandId string, categoryRandId string, categoryUUID string) error {
+	query := redifu.NewQuery("ticket", "t").
+		Select("t.*, a.*, c.*").
+		LeftJoin("account", "a", "t.account_uuid = a.uuid").
+		LeftJoin("category", "c", "t.category_uuid = c.uuid").
+		Where("t.category_uuid", redifu.Equal).
+		OrderBy("t.created_at", redifu.Descending)
+
+	return t.timelineByCategorySeeder.Seed(subtraction, lastRandId, query).
+		WithParams(categoryRandId).WithQueryArgs(categoryUUID).
+		ExecWithRelation(
+			ctx,
+			rowScanner,
+			rowsScannerWithRelation,
+		)
+}
+
 func (t *TicketRepository) SeedTicketsBySecurityRisk(ctx context.Context, subtraction int64, lastRandId string) error {
 	query := redifu.NewQuery("ticket", "t").
-		Select("SELECT t.*, a.*").
+		Select("t.*, a.*, c.*").
 		LeftJoin("account", "a", "t.account_uuid = a.uuid").
+		LeftJoin("category", "c", "t.category_uuid = c.uuid").
 		OrderBy("t.security_risk", redifu.Descending)
 
 	return t.timelineBySecurityRiskSeeder.Seed(subtraction, lastRandId, query).
@@ -295,7 +336,6 @@ func (t *TicketRepository) SeedTicketsBySecurityRisk(ctx context.Context, subtra
 
 func (t *TicketRepository) SeedByAccount(ctx context.Context, reporterUUID string) error {
 	//query := "SELECT * FROM ticket WHERE account_uuid = $1"
-	//return t.sortedByReporterSeeder.SeedWithRelation(query, rowsScannerWithRelation, []interface{}{reporterUUID}, []string{reporterUUID})
 
 	query := redifu.NewQuery("ticket").
 		Where("account_uuid", redifu.Equal)
@@ -312,12 +352,12 @@ func (t *TicketRepository) SeedPage(ctx context.Context, page int64) error {
 	//	  LEFT JOIN account a ON t.account_uuid = a.uuid
 	//	  ORDER BY t.created_at DESC
 	//	`
-	//return t.pageSeeder.SeedWithRelation(query, page, rowsScannerWithRelation, nil, nil)
 
 	query := redifu.NewQuery("ticket", "t").
-		Select("SELECT t.*, a.*").
+		Select("t.*, a.*, c.*").
 		LeftJoin("account", "a", "t.account_uuid = a.uuid").
-		OrderBy("t.created_at", "DESC")
+		LeftJoin("category", "c", "t.category_uuid = c.uuid").
+		OrderBy("t.created_at", redifu.Descending)
 
 	return t.pageSeeder.Seed(page, query).ExecWithRelation(ctx, rowsScannerWithRelation)
 }
@@ -327,64 +367,34 @@ func (t *TicketRepository) SeedByDate(ctx context.Context, lowerbound time.Time,
 	//	  SELECT * FROM ticket
 	//	  WHERE created_at BETWEEN $1 AND $2
 	//	`
-	//
-	//return t.timeSeriesSeeder.Seed(query, nil, lowerbound, upperbound, nil, rowsScanner)
 
 	query := redifu.NewQuery("ticket", "t").
-		Select("SELECT t.*, a.*").
+		Select("t.*, a.*, c.*").
 		LeftJoin("account", "a", "t.account_uuid = a.uuid").
+		LeftJoin("category", "c", "t.category_uuid = c.uuid").
 		Where("t.created_at", redifu.Between)
 
 	return t.timeSeriesSeeder.Seed(query, lowerbound, upperbound).ExecWithRelation(ctx, rowsScannerWithRelation)
 
 }
 
-func NewTicketRepository(db *sql.DB, redisClient redis.UniversalClient) *TicketRepository {
-	base := redifu.NewBase[*model.Ticket](redisClient, "ticket:%s", definition.BaseTTL)
-	baseAccount := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
-	accountRelation := redifu.NewRelation[*model.Account](baseAccount, redifu.TypeOf[model.Ticket]())
-
-	// Timeline - CreatedAt
-	timeline := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
-	timeline.AddRelation("account", accountRelation)
-	timelineSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timeline)
-
-	// Timeline - Custom Scoring
-	timelineBySecurityRisk := redifu.NewTimeline[*model.Ticket](redisClient, base, "ticket-timeline-by-security", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
-	timelineBySecurityRisk.AddRelation("account", accountRelation)
-	timelineBySecurityRisk.SetSortingReference("SecurityRisk")
-	timelineBySecurityRiskSeeder := redifu.NewTimelineSeeder[*model.Ticket](redisClient, db, base, timelineBySecurityRisk)
-	timelineBySecurityRiskSeeder.SetSortingReference("SecurityRisk")
-
-	// Sorted - CreatedAt
-	sortedByAccount := redifu.NewSorted[*model.Ticket](redisClient, base, "ticket-sorted-by-account", definition.SortedSetTTL)
-	sortedByAccount.AddRelation("account", accountRelation)
-	sortedByReporterSeeder := redifu.NewSortedSeeder[*model.Ticket](redisClient, db, base, sortedByAccount)
-
-	// Page - CreatedAt
-	page := redifu.NewPage[*model.Ticket](redisClient, base, "ticket-page", definition.ItemPerPage, redifu.Descending, definition.SortedSetTTL)
-	page.AddRelation("account", accountRelation)
-	pageSeeder := redifu.NewPageSeeder[*model.Ticket](redisClient, db, base, page)
-
-	// Time Series - strictly CreatedAt only
-	timeSeries := redifu.NewTimeSeries[*model.Ticket](redisClient, base, "ticket-time-series", definition.SortedSetTTL)
-	timeSeries.AddRelation("account", accountRelation)
-	timeSeriesSeeder := redifu.NewTimeSeriesSeeder[*model.Ticket](redisClient, db, base, timeSeries)
-
+func NewTicketRepository(db *sql.DB, fetcherPool *pools.FetcherPool, seederPool *pools.SeederPool) *TicketRepository {
 	ticketRepository := &TicketRepository{}
 	ticketRepository.Init(
 		db,
-		base,
-		timeline,
-		timelineSeeder,
-		timelineBySecurityRisk,
-		timelineBySecurityRiskSeeder,
-		sortedByAccount,
-		sortedByReporterSeeder,
-		page,
-		pageSeeder,
-		timeSeries,
-		timeSeriesSeeder,
+		fetcherPool.BaseTicket,
+		fetcherPool.Timeline,
+		seederPool.TimelineSeeder,
+		fetcherPool.TimelineByCategory,
+		seederPool.TimelineByCategorySeeder,
+		fetcherPool.TimelineSortBySecurityRisk,
+		seederPool.TimelineSortBySecurityRiskSeeder,
+		fetcherPool.SortedByAccount,
+		seederPool.SortedByAccountSeeder,
+		fetcherPool.Page,
+		seederPool.PageSeeder,
+		fetcherPool.TimeSeries,
+		seederPool.TimeSeriesSeeder,
 	)
 
 	return ticketRepository

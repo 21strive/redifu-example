@@ -3,15 +3,15 @@ package fetcher
 import (
 	"context"
 	"github.com/21strive/redifu"
-	"github.com/redis/go-redis/v9"
-	"redifu-example/definition"
 	"redifu-example/internal/model"
+	"redifu-example/internal/pools"
 	"time"
 )
 
 type TicketFetcher struct {
 	base                   *redifu.Base[*model.Ticket]
 	timeline               *redifu.Timeline[*model.Ticket]
+	timelineByCategory     *redifu.Timeline[*model.Ticket]
 	timelineBySecurityRisk *redifu.Timeline[*model.Ticket]
 	sortedByAccount        *redifu.Sorted[*model.Ticket]
 	page                   *redifu.Page[*model.Ticket]
@@ -21,6 +21,7 @@ type TicketFetcher struct {
 func (t *TicketFetcher) Init(
 	base *redifu.Base[*model.Ticket],
 	timeline *redifu.Timeline[*model.Ticket],
+	timelineByCategory *redifu.Timeline[*model.Ticket],
 	timelineBySecurityRisk *redifu.Timeline[*model.Ticket],
 	sortedByAccount *redifu.Sorted[*model.Ticket],
 	page *redifu.Page[*model.Ticket],
@@ -28,6 +29,7 @@ func (t *TicketFetcher) Init(
 ) {
 	t.base = base
 	t.timeline = timeline
+	t.timelineByCategory = timelineByCategory
 	t.timelineBySecurityRisk = timelineBySecurityRisk
 	t.sortedByAccount = sortedByAccount
 	t.page = page
@@ -47,7 +49,7 @@ func (t *TicketFetcher) IsBlank(ctx context.Context, randid string) (bool, error
 	return t.base.IsMissing(ctx, randid)
 }
 
-func (t *TicketFetcher) FetchTimeline(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, error) {
+func (t *TicketFetcher) FetchTimeline(ctx context.Context, lastRandId []string) *redifu.FetchOutput[*model.Ticket] {
 	return t.timeline.Fetch(lastRandId).Exec(ctx)
 }
 
@@ -55,7 +57,15 @@ func (t *TicketFetcher) IsTimelineSeedingRequired(ctx context.Context, totalRece
 	return t.timeline.RequiresSeeding(ctx, totalReceivedItem)
 }
 
-func (t *TicketFetcher) FetchTimelineBySecurityRisk(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, error) {
+func (t *TicketFetcher) FetchTimelineByCategory(ctx context.Context, categoryRandId string, lastRandId []string) *redifu.FetchOutput[*model.Ticket] {
+	return t.timelineByCategory.Fetch(lastRandId).WithParams(categoryRandId).Exec(ctx)
+}
+
+func (t *TicketFetcher) IsTimelineByCategorySeedingRequired(ctx context.Context, categoryRandId string, totalReceivedItem int64) (bool, error) {
+	return t.timelineByCategory.RequiresSeeding(ctx, totalReceivedItem, categoryRandId)
+}
+
+func (t *TicketFetcher) FetchTimelineBySecurityRisk(ctx context.Context, lastRandId []string) *redifu.FetchOutput[*model.Ticket] {
 	return t.timelineBySecurityRisk.Fetch(lastRandId).Exec(ctx)
 }
 
@@ -83,53 +93,15 @@ func (t *TicketFetcher) FetchByRange(ctx context.Context, lowerbound time.Time, 
 	return t.timeSeries.Fetch(lowerbound, upperbound).Exec(ctx)
 }
 
-func NewTicketFetcher(redisClient redis.UniversalClient) *TicketFetcher {
-	base := redifu.NewBase[*model.Ticket](redisClient, "ticket:%s", definition.BaseTTL)
-	baseAccount := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
-	accountRelation := redifu.NewRelation[*model.Account](baseAccount, redifu.TypeOf[model.Ticket]())
-
-	timeline := redifu.NewTimeline[*model.Ticket](
-		redisClient,
-		base,
-		"ticket-timeline",
-		definition.ItemPerPage,
-		redifu.Descending,
-		definition.SortedSetTTL)
-	timeline.AddRelation("account", accountRelation)
-
-	timelineBySecurityRisk := redifu.NewTimeline[*model.Ticket](
-		redisClient,
-		base,
-		"ticket-timeline-by-security",
-		definition.ItemPerPage,
-		redifu.Descending,
-		definition.SortedSetTTL)
-	timelineBySecurityRisk.AddRelation("account", accountRelation)
-	timelineBySecurityRisk.SetSortingReference("SecurityRisk")
-
-	sortedByAccount := redifu.NewSorted[*model.Ticket](
-		redisClient,
-		base,
-		"ticket-sorted-by-account",
-		definition.SortedSetTTL)
-	sortedByAccount.AddRelation("account", accountRelation)
-
-	page := redifu.NewPage[*model.Ticket](
-		redisClient,
-		base,
-		"ticket-page",
-		definition.ItemPerPage,
-		redifu.Descending,
-		definition.SortedSetTTL)
-	page.AddRelation("account", accountRelation)
-
-	timeSeries := redifu.NewTimeSeries[*model.Ticket](
-		redisClient,
-		base,
-		"ticket-time-series",
-		definition.SortedSetTTL)
-
+func NewTicketFetcher(fetcherPool *pools.FetcherPool) *TicketFetcher {
 	ticketFetcher := &TicketFetcher{}
-	ticketFetcher.Init(base, timeline, timelineBySecurityRisk, sortedByAccount, page, timeSeries)
+	ticketFetcher.Init(
+		fetcherPool.BaseTicket,
+		fetcherPool.Timeline,
+		fetcherPool.TimelineByCategory,
+		fetcherPool.TimelineSortBySecurityRisk,
+		fetcherPool.SortedByAccount,
+		fetcherPool.Page,
+		fetcherPool.TimeSeries)
 	return ticketFetcher
 }

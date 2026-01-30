@@ -6,6 +6,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"redifu-example/definition"
 	"redifu-example/internal/model"
+	"redifu-example/internal/pools"
 )
 
 type AccountFetcher struct {
@@ -13,8 +14,8 @@ type AccountFetcher struct {
 	base        *redifu.Base[*model.Account]
 }
 
-func (a *AccountFetcher) Init(base *redifu.Base[*model.Account]) {
-	a.base = base
+func (a *AccountFetcher) Init(fetcherPool *pools.FetcherPool) {
+	a.base = fetcherPool.BaseAccount
 }
 
 func (a *AccountFetcher) Fetch(ctx context.Context, accountRandId string) (*model.Account, error) {
@@ -52,9 +53,9 @@ func (a *AccountFetcher) FetchByUUID(ctx context.Context, accountUUID string) (*
 	return a.Fetch(ctx, accountRandId)
 }
 
-func NewAccountFetcher(redisClient redis.UniversalClient) *AccountFetcher {
-	base := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
+func NewAccountFetcher(redisClient redis.UniversalClient, fetcherPool *pools.FetcherPool) *AccountFetcher {
 	accountFetcher := &AccountFetcher{}
-	accountFetcher.Init(base)
+	accountFetcher.Init(fetcherPool)
+	accountFetcher.redisClient = redisClient
 	return accountFetcher
 }

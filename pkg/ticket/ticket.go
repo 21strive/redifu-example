@@ -1,32 +1,31 @@
-package service
+package ticket
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"github.com/21strive/redifu"
-	"github.com/redis/go-redis/v9"
 	"redifu-example/definition"
 	"redifu-example/internal/fetcher"
 	"redifu-example/internal/model"
 	"redifu-example/internal/repository"
+	"redifu-example/pkg/account"
 	"time"
 )
 
 type TicketService struct {
-	ticketRepository *repository.TicketRepository
-	ticketFetcher    *fetcher.TicketFetcher
-	accountService   *AccountService
+	ticketRepository   *repository.TicketRepository
+	categoryRepository *repository.CategoryRepository
+	ticketFetcher      *fetcher.TicketFetcher
+	accountService     *account.AccountService
 }
 
-func (s *TicketService) InitRepository(db *sql.DB, redisClient redis.UniversalClient, accountService *AccountService) {
-	ticketRepository := repository.NewTicketRepository(db, redisClient)
+func (s *TicketService) InitRepository(ticketRepository *repository.TicketRepository, categoryRepository *repository.CategoryRepository, accountService *account.AccountService) {
 	s.ticketRepository = ticketRepository
+	s.categoryRepository = categoryRepository
 	s.accountService = accountService
 }
 
-func (s *TicketService) InitFetcher(redisClient redis.UniversalClient) {
-	ticketFetcher := fetcher.NewTicketFetcher(redisClient)
+func (s *TicketService) InitFetcher(ticketFetcher *fetcher.TicketFetcher) {
 	s.ticketFetcher = ticketFetcher
 }
 
@@ -103,28 +102,29 @@ func (s *TicketService) GetTicket(ctx context.Context, randid string) (*model.Ti
 }
 
 func (s *TicketService) GetTickets(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
-	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimeline(ctx, lastRandId)
-	if errFetch != nil {
+	fetchRes := s.ticketFetcher.FetchTimeline(ctx, lastRandId)
+	if fetchRes.Error() != nil {
 		requiresSeed := false
-		if errors.Is(errFetch, redifu.ResetPagination) {
+		if errors.Is(fetchRes.Error(), redifu.ResetPagination) {
 			requiresSeed = true
 		}
-		return nil, validLastRandId, position, requiresSeed, errFetch
+		return nil, fetchRes.ValidLastId(), fetchRes.Position(), requiresSeed, fetchRes.Error()
 	}
 
+	tickets := fetchRes.Items()
 	totalReceivedItems := int64(len(tickets))
 	if totalReceivedItems < definition.ItemPerPage {
 		seedRequired, errCheck := s.ticketFetcher.IsTimelineSeedingRequired(ctx, totalReceivedItems)
 		if errCheck != nil {
-			return nil, validLastRandId, position, false, errCheck
+			return nil, fetchRes.ValidLastId(), fetchRes.Position(), false, fetchRes.Error()
 		}
 
 		if seedRequired {
-			return tickets, validLastRandId, position, true, nil
+			return nil, fetchRes.ValidLastId(), fetchRes.Position(), true, fetchRes.Error()
 		}
 	}
 
-	return tickets, validLastRandId, position, false, nil
+	return tickets, fetchRes.ValidLastId(), fetchRes.Position(), false, fetchRes.Error()
 }
 
 func (s *TicketService) GetTicketsByReporter(ctx context.Context, reporterUUID string) ([]*model.Ticket, bool, error) {
@@ -145,28 +145,54 @@ func (s *TicketService) GetTicketsByReporter(ctx context.Context, reporterUUID s
 	return tickets, false, nil
 }
 
-func (s *TicketService) GetTicketsBySecurityRisk(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
-	tickets, validLastRandId, position, errFetch := s.ticketFetcher.FetchTimelineBySecurityRisk(ctx, lastRandId)
-	if errFetch != nil {
+func (s *TicketService) GetTicketsByCategory(ctx context.Context, categoryRandId string, lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
+	fetchRes := s.ticketFetcher.FetchTimelineByCategory(ctx, categoryRandId, lastRandId)
+	if fetchRes.Error() != nil {
 		requiresSeed := false
-		if errors.Is(errFetch, redifu.ResetPagination) {
+		if errors.Is(fetchRes.Error(), redifu.ResetPagination) {
 			requiresSeed = true
 		}
-		return nil, validLastRandId, position, requiresSeed, errFetch
+		return nil, fetchRes.ValidLastId(), fetchRes.Position(), requiresSeed, fetchRes.Error()
 	}
 
+	tickets := fetchRes.Items()
+	totalReceivedItems := int64(len(tickets))
+	if totalReceivedItems < definition.ItemPerPage {
+		seedRequired, errCheck := s.ticketFetcher.IsTimelineByCategorySeedingRequired(ctx, categoryRandId, totalReceivedItems)
+		if errCheck != nil {
+			return nil, fetchRes.ValidLastId(), fetchRes.Position(), false, errCheck
+		}
+		if seedRequired {
+			return tickets, fetchRes.ValidLastId(), fetchRes.Position(), true, nil
+		}
+	}
+
+	return tickets, fetchRes.ValidLastId(), fetchRes.Position(), false, nil
+}
+
+func (s *TicketService) GetTicketsBySecurityRisk(ctx context.Context, lastRandId []string) ([]*model.Ticket, string, string, bool, error) {
+	fetchRes := s.ticketFetcher.FetchTimelineBySecurityRisk(ctx, lastRandId)
+	if fetchRes.Error() != nil {
+		requiresSeed := false
+		if errors.Is(fetchRes.Error(), redifu.ResetPagination) {
+			requiresSeed = true
+		}
+		return nil, fetchRes.ValidLastId(), fetchRes.Position(), requiresSeed, fetchRes.Error()
+	}
+
+	tickets := fetchRes.Items()
 	totalReceivedItems := int64(len(tickets))
 	if totalReceivedItems < definition.ItemPerPage {
 		seedRequired, errCheck := s.ticketFetcher.IsTimelineBySecurityRiskSeedingRequired(ctx, totalReceivedItems)
 		if errCheck != nil {
-			return nil, validLastRandId, position, false, errCheck
+			return nil, fetchRes.ValidLastId(), fetchRes.Position(), false, errCheck
 		}
 		if seedRequired {
-			return tickets, validLastRandId, position, true, nil
+			return tickets, fetchRes.ValidLastId(), fetchRes.Position(), true, nil
 		}
 	}
 
-	return tickets, validLastRandId, position, false, nil
+	return tickets, fetchRes.ValidLastId(), fetchRes.Position(), false, nil
 }
 
 func (s *TicketService) GetTicketsByPage(ctx context.Context, page int64) ([]*model.Ticket, bool, error) {
@@ -218,6 +244,15 @@ func (s *TicketService) SeedTickets(ctx context.Context, subtraction int64, last
 
 func (s *TicketService) SeedTicketsByAccount(ctx context.Context, reporterUUID string) error {
 	return s.ticketRepository.SeedByAccount(ctx, reporterUUID)
+}
+
+func (s *TicketService) SeedTicketsByCategory(ctx context.Context, subtraction int64, lastRandId string, categoryRandId string) error {
+	category, errFind := s.categoryRepository.FindByRandId(ctx, categoryRandId)
+	if errFind != nil {
+		return errFind
+	}
+
+	return s.ticketRepository.SeedByCategory(ctx, subtraction, lastRandId, categoryRandId, category.GetUUID())
 }
 
 func (s *TicketService) SeedTicketsBySecurityRisk(ctx context.Context, subtraction int64, lastRandId string) error {

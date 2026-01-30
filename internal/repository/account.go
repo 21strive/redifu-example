@@ -7,6 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"redifu-example/definition"
 	"redifu-example/internal/model"
+	"redifu-example/internal/pools"
 )
 
 type AccountRepository struct {
@@ -15,8 +16,8 @@ type AccountRepository struct {
 	base        *redifu.Base[*model.Account]
 }
 
-func (ar *AccountRepository) Init(db *sql.DB, base *redifu.Base[*model.Account]) {
-	ar.base = base
+func (ar *AccountRepository) Init(db *sql.DB, fetcherPool *pools.FetcherPool) {
+	ar.base = fetcherPool.BaseAccount
 	ar.db = db
 }
 
@@ -33,7 +34,7 @@ func (ar *AccountRepository) Create(ctx context.Context, account *model.Account)
 		return errCreate
 	}
 
-	errSet := ar.base.Upsert(ctx, account)
+	errSet := ar.base.Set(ctx, account)
 	if errSet != nil {
 		return errSet
 	}
@@ -68,7 +69,7 @@ func (ar *AccountRepository) SeedByUUID(ctx context.Context, accountUUID string)
 		return errSet
 	}
 
-	return ar.base.Upsert(ctx, accountFromDB)
+	return ar.base.Set(ctx, accountFromDB)
 }
 
 func (ar *AccountRepository) Update(ctx context.Context, account *model.Account) error {
@@ -84,7 +85,7 @@ func (ar *AccountRepository) Update(ctx context.Context, account *model.Account)
 		return errUpdate
 	}
 
-	errSet := ar.base.Upsert(ctx, account)
+	errSet := ar.base.Set(ctx, account)
 	if errSet != nil {
 		return errSet
 	}
@@ -92,9 +93,9 @@ func (ar *AccountRepository) Update(ctx context.Context, account *model.Account)
 	return nil
 }
 
-func NewAccountRepository(db *sql.DB, redisClient redis.UniversalClient) *AccountRepository {
-	base := redifu.NewBase[*model.Account](redisClient, "account:%s", definition.BaseTTL)
+func NewAccountRepository(db *sql.DB, redisClient redis.UniversalClient, fetcherPool *pools.FetcherPool) *AccountRepository {
 	accountRepository := &AccountRepository{}
-	accountRepository.Init(db, base)
+	accountRepository.Init(db, fetcherPool)
+	accountRepository.redisClient = redisClient
 	return accountRepository
 }

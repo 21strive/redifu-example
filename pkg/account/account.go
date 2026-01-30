@@ -1,9 +1,7 @@
-package service
+package account
 
 import (
 	"context"
-	"database/sql"
-	"github.com/redis/go-redis/v9"
 	"redifu-example/internal/fetcher"
 	"redifu-example/internal/model"
 	"redifu-example/internal/repository"
@@ -14,13 +12,11 @@ type AccountService struct {
 	accountFetcher    *fetcher.AccountFetcher
 }
 
-func (s *AccountService) InitRepository(db *sql.DB, redisClient redis.UniversalClient) {
-	accountRepository := repository.NewAccountRepository(db, redisClient)
+func (s *AccountService) InitRepository(accountRepository *repository.AccountRepository) {
 	s.accountRepository = accountRepository
 }
 
-func (s *AccountService) InitFetcher(redisClient redis.UniversalClient) {
-	accountFetcher := fetcher.NewAccountFetcher(redisClient)
+func (s *AccountService) InitFetcher(accountFetcher *fetcher.AccountFetcher) {
 	s.accountFetcher = accountFetcher
 }
 

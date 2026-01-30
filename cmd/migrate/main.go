@@ -7,7 +7,7 @@ import (
 	_ "github.com/lib/pq"
 	"log"
 	"os"
-	"redifu-example/internal/dbconn"
+	"redifu-example/pkg/utils"
 )
 
 type MigrationConfig struct {
@@ -76,7 +76,7 @@ func ValidateConfig(config *MigrationConfig) error {
 }
 
 func CreateTables(config *MigrationConfig) {
-	db := dbconn.CreatePostgresConnection(config.Host, config.Port, config.User, config.Password, config.Database, config.SSLMode)
+	db := utils.CreatePostgresConnection(config.Host, config.Port, config.User, config.Password, config.Database, config.SSLMode)
 	defer func() {
 		if err := db.Close(); err != nil {
 			log.Printf("Error closing database connection: %v", err)

@@ -1,11 +1,9 @@
 package controller
 
 import (
-	"database/sql"
 	"github.com/gofiber/fiber/v2"
-	"github.com/redis/go-redis/v9"
 	"redifu-example/internal/logger"
-	"redifu-example/pkg/service"
+	"redifu-example/pkg/account"
 )
 
 type CreateAccountRequest struct {
@@ -14,7 +12,7 @@ type CreateAccountRequest struct {
 }
 
 type AccountController struct {
-	accountService *service.AccountService
+	accountService *account.AccountService
 }
 
 func (ac *AccountController) CreateAccount(c *fiber.Ctx) error {
@@ -33,9 +31,6 @@ func (ac *AccountController) CreateAccount(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusCreated)
 }
 
-func NewAccountCUDController(db *sql.DB, redisClient redis.UniversalClient) *AccountController {
-	accountService := service.NewAccountService()
-	accountService.InitRepository(db, redisClient)
-
+func NewAccountCUDController(accountService *account.AccountService) *AccountController {
 	return &AccountController{accountService: accountService}
 }

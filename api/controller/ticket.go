@@ -2,14 +2,12 @@ package controller
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/21strive/redifu"
 	"github.com/gofiber/fiber/v2"
-	"github.com/redis/go-redis/v9"
 	"redifu-example/internal/logger"
-	"redifu-example/pkg/service"
+	"redifu-example/pkg/ticket"
 	"strconv"
 	"strings"
 	"time"
@@ -33,7 +31,7 @@ type UpdateAccountRequest struct {
 }
 
 type TicketCUDController struct {
-	ticketService *service.TicketService
+	ticketService *ticket.TicketService
 }
 
 func (cud *TicketCUDController) CreateTicket(c *fiber.Ctx) error {
@@ -97,17 +95,12 @@ func (cud *TicketCUDController) DeleteTicket(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
-func NewTicketCUDController(db *sql.DB, redisClient redis.UniversalClient) *TicketCUDController {
-	ticketService := service.NewTicketService()
-	accountService := service.NewAccountService()
-
-	ticketService.InitRepository(db, redisClient, accountService)
-	accountService.InitRepository(db, redisClient)
+func NewTicketCUDController(ticketService *ticket.TicketService) *TicketCUDController {
 	return &TicketCUDController{ticketService: ticketService}
 }
 
 type TicketFetchController struct {
-	ticketService *service.TicketService
+	ticketService *ticket.TicketService
 	seedHandler   TicketSeeder
 }
 
@@ -178,6 +171,43 @@ func (fh *TicketFetchController) GetTickets(c *fiber.Ctx) error {
 			tickets, validLastRandId, position, isSeedingRequired, errFetch = fh.ticketService.GetTicketsBySecurityRisk(mainCtx, lastRandIdArray)
 			if errFetch != nil {
 				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsBySecurityRiskAfterSeed.Fetch")
+			}
+		}
+
+		c.Set("Content-Type", "application/json")
+		return c.JSON(map[string]interface{}{
+			"position": position,
+			"tickets":  tickets,
+		})
+	} else if sortBy == "category" {
+		categoryRandId := c.Query("categoryRandId")
+		if categoryRandId == "" {
+			return logger.Error(c, fiber.StatusBadRequest, errors.New("categoryRandId is required"), "T100", "GetTicketsByCategory.Params")
+		}
+
+		var lastRandIdArray []string
+		lastRandId := c.Query("lastRandId")
+		if lastRandId != "" {
+			lastRandIdArray = strings.Split(lastRandId, ",")
+		}
+
+		tickets, validLastRandId, position, isSeedingRequired, errFetch := fh.ticketService.GetTicketsByCategory(mainCtx, categoryRandId, lastRandIdArray)
+		if errFetch != nil {
+			if errors.Is(errFetch, redifu.ResetPagination) {
+				lastRandIdArray = []string{}
+			} else {
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsByCategory.Fetch")
+			}
+		}
+		if isSeedingRequired {
+			errSeedTicketTimeline := fh.seedHandler.SeedTicketsByCategory(mainCtx, int64(len(tickets)), validLastRandId, categoryRandId)
+			if errSeedTicketTimeline != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errSeedTicketTimeline, "T500", "GetTicketsByCategory.Seed")
+			}
+
+			tickets, validLastRandId, position, isSeedingRequired, errFetch = fh.ticketService.GetTicketsByCategory(mainCtx, categoryRandId, lastRandIdArray)
+			if errFetch != nil {
+				return logger.Error(c, fiber.StatusInternalServerError, errFetch, "T500", "GetTicketsByCategoryAfterSeed.Fetch")
 			}
 		}
 
@@ -295,10 +325,7 @@ func (fh *TicketFetchController) GetTicketsByReporter(c *fiber.Ctx) error {
 	return c.JSON(ticket)
 }
 
-func NewTicketFetchController(redisClient redis.UniversalClient, seeder TicketSeeder) *TicketFetchController {
-	ticketService := service.NewTicketService()
-	ticketService.InitFetcher(redisClient)
-
+func NewTicketFetchController(ticketService *ticket.TicketService, seeder TicketSeeder) *TicketFetchController {
 	return &TicketFetchController{
 		ticketService: ticketService,
 		seedHandler:   seeder,
@@ -308,6 +335,7 @@ func NewTicketFetchController(redisClient redis.UniversalClient, seeder TicketSe
 type TicketSeeder interface {
 	SeedTickets(context.Context, int64, string) error
 	SeedTicketBySecurityRisk(context.Context, int64, string) error
+	SeedTicketsByCategory(context.Context, int64, string, string) error
 	SeedByAccount(context.Context, string) error
 	SeedTicket(context.Context, string) error
 	SeedTicketsByPage(ctx context.Context, page int64) error
@@ -315,7 +343,7 @@ type TicketSeeder interface {
 }
 
 type TicketSeedHandler struct {
-	ticketService *service.TicketService
+	ticketService *ticket.TicketService
 }
 
 func (sh *TicketSeedHandler) SeedTickets(ctx context.Context, subtraction int64, lastRandId string) error {
@@ -324,6 +352,10 @@ func (sh *TicketSeedHandler) SeedTickets(ctx context.Context, subtraction int64,
 
 func (sh *TicketSeedHandler) SeedTicketBySecurityRisk(ctx context.Context, subtraction int64, lastRandId string) error {
 	return sh.ticketService.SeedTicketsBySecurityRisk(ctx, subtraction, lastRandId)
+}
+
+func (sh *TicketSeedHandler) SeedTicketsByCategory(ctx context.Context, subtraction int64, lastRandId string, categoryRandId string) error {
+	return sh.ticketService.SeedTicketsByCategory(ctx, subtraction, lastRandId, categoryRandId)
 }
 
 func (sh *TicketSeedHandler) SeedByAccount(ctx context.Context, accountUUID string) error {
@@ -342,12 +374,7 @@ func (sh *TicketSeedHandler) SeedTicketsByDate(ctx context.Context, lowerbound t
 	return sh.ticketService.SeedTicketsByDate(ctx, lowerbound, upperbound)
 }
 
-func NewSelfSeedHandler(db *sql.DB, redisClient redis.UniversalClient) *TicketSeedHandler {
-	ticketService := service.NewTicketService()
-	accountService := service.NewAccountService()
-	accountService.InitRepository(db, redisClient)
-
-	ticketService.InitRepository(db, redisClient, accountService)
+func NewSelfSeedHandler(ticketService *ticket.TicketService) *TicketSeedHandler {
 	return &TicketSeedHandler{
 		ticketService: ticketService,
 	}

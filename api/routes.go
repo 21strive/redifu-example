@@ -1,14 +1,14 @@
 package api
 
 import (
-	"database/sql"
 	"github.com/gofiber/fiber/v2"
-	"github.com/redis/go-redis/v9"
 	"redifu-example/api/controller"
+	"redifu-example/pkg/account"
+	"redifu-example/pkg/ticket"
 )
 
-func SetterEndpoints(app *fiber.App, db *sql.DB, redisClient redis.UniversalClient) {
-	cudController := controller.NewTicketCUDController(db, redisClient)
+func SetterEndpoints(app *fiber.App, ticketService *ticket.TicketService, accountService *account.AccountService) {
+	cudController := controller.NewTicketCUDController(ticketService)
 
 	// Ticket management group
 	ticketGroup := app.Group("/ticket")
@@ -19,12 +19,12 @@ func SetterEndpoints(app *fiber.App, db *sql.DB, redisClient redis.UniversalClie
 
 	// Account management group
 	accountGroup := app.Group("/account")
-	accountController := controller.NewAccountCUDController(db, redisClient)
+	accountController := controller.NewAccountCUDController(accountService)
 	accountGroup.Post("/", accountController.CreateAccount)
 }
 
-func GetterEndpoints(app *fiber.App, redisClient redis.UniversalClient, ticketSeeder controller.TicketSeeder) {
-	fetchController := controller.NewTicketFetchController(redisClient, ticketSeeder)
+func GetterEndpoints(app *fiber.App, ticketService *ticket.TicketService, ticketSeeder controller.TicketSeeder) {
+	fetchController := controller.NewTicketFetchController(ticketService, ticketSeeder)
 
 	// Ticket retrieval group
 	ticketGroup := app.Group("/ticket")
