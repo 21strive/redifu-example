@@ -159,13 +159,13 @@ func (t *TicketRepository) FindByRandId(randid string) (*model.Ticket, error) {
 
 func rowScanner(row *sql.Row) (*model.Ticket, error) {
 	ticket := model.NewTicket()
-	errScan := row.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.AccountUUID, &ticket.Description, &ticket.Resolved, &ticket.SecurityRisk)
+	errScan := row.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.AccountUUID, &ticket.Description, &ticket.Resolved, &ticket.SecurityRisk, &ticket.CategoryUUID)
 	return ticket, errScan
 }
 
 func rowsScanner(rows *sql.Rows) (*model.Ticket, error) {
 	ticket := model.NewTicket()
-	errScan := rows.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.AccountUUID, &ticket.Description, &ticket.Resolved, &ticket.SecurityRisk)
+	errScan := rows.Scan(&ticket.UUID, &ticket.RandId, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.AccountUUID, &ticket.Description, &ticket.Resolved, &ticket.SecurityRisk, &ticket.CategoryUUID)
 	return ticket, errScan
 }
 
@@ -194,10 +194,10 @@ func rowsScannerWithRelation(ctx context.Context, rows *sql.Rows, relation map[s
 		&ticket.CreatedAt,
 		&ticket.UpdatedAt,
 		&ticket.AccountUUID,
-		&ticket.CategoryUUID,
 		&ticket.Description,
 		&ticket.Resolved,
 		&ticket.SecurityRisk,
+		&ticket.CategoryUUID,
 		&accountUUID,
 		&accountRandId,
 		&accountCreatedAt,
